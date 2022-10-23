@@ -30,6 +30,6 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	i = strtol(argv[1], NULL, 10);
-	syscall(334, i);
+	syscall(437, i);
     return 0;
 }

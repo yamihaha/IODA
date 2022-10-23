@@ -1,7 +1,7 @@
 #!/bin/bash
 
 IODA_IMGDIR="./images/"
-IODA_KERNEL="src/iodaLinux/arch/x86/boot/bzImage"
+# IODA_KERNEL="src/iodaLinux/arch/x86/boot/bzImage"
 IODA_FEMU="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
 SHARE_DIR="${HOME}/share/"
 
@@ -10,8 +10,8 @@ echo 2 | sudo tee /sys/kernel/mm/ksm/run >/dev/null 2>&1
 echo "===> Booting the IODA Virtual Machine..."
 #sleep 3
 
-    #-kernel "${IODA_KERNEL}" \
-    #-append "root=/dev/sda1 console=ttyS0,115200n8 console=tty0 biosdevname=0 net.ifnames=0 nokaslr log_buf_len=128M loglevel=4" \
+    # -kernel "${IODA_KERNEL}" \
+    # -append "root=/dev/vda1 console=ttyS0,115200n8 console=tty0" \
 
 sudo ${IODA_FEMU} \
     -name "iodaVM" \
@@ -30,3 +30,5 @@ sudo ${IODA_FEMU} \
     -netdev user,id=user0,hostfwd=tcp::10101-:22 \
     -device virtio-net-pci,netdev=user0 \
     -nographic | tee ./ioda-femu.log 2>&1 \
+
+    # -vnc :1     # for debug kernel boot

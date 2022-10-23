@@ -1,12 +1,5 @@
 #!/bin/bash
 
-usage() {
-    echo ""
-    echo "Usage: $0 [ioda|nonioda]"
-    echo ""
-    exit
-}
-
 IODA_IMGDIR="./images/"
 IODA_KERNEL="src/iodaLinux/arch/x86/boot/bzImage"
 IODA_FEMU="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
@@ -14,7 +7,7 @@ IODA_FEMU="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
 echo 2 | sudo tee /sys/kernel/mm/ksm/run >/dev/null 2>&1
 
 echo "===> Booting the IODA Virtual Machine..."
-sleep 3
+#sleep 3
 
     #-kernel "${IODA_KERNEL}" \
     #-append "root=/dev/sda1 console=ttyS0,115200n8 console=tty0 biosdevname=0 net.ifnames=0 nokaslr log_buf_len=128M loglevel=4" \

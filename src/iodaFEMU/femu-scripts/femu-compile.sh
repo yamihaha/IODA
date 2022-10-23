@@ -2,9 +2,9 @@
 
 NRCPUS="$(cat /proc/cpuinfo | grep "vendor_id" | wc -l)"
 
-../configure --enable-kvm --target-list=x86_64-softmmu --disable-werror --extra-cflags=-w
-
 make clean
+
+../configure --enable-kvm --target-list=x86_64-softmmu --disable-werror --extra-cflags=-w
 
 make -j $NRCPUS
 

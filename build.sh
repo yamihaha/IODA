@@ -13,7 +13,7 @@ green=`tput setaf 2`
 blue=`tput setaf 4`
 reset=`tput sgr0`
 
-IODA_BUILD_LOG="ioda-build.log"
+IODA_BUILD_LOG=${IODA_TOPDIR}"/ioda-build.log"
 
 sudo swapoff -a
 
@@ -51,7 +51,6 @@ cd ../../
 
 
 IODA_FEMU_BIN="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
-NONIODA_FEMU_BIN="src/noniodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
 IODA_LINUX_BIN="src/iodaLinux/arch/x86/boot/bzImage"
 
 if [[ -e ${IODA_FEMU_BIN} && -e ${IODA_LINUX_BIN} ]]; then
@@ -60,18 +59,11 @@ if [[ -e ${IODA_FEMU_BIN} && -e ${IODA_LINUX_BIN} ]]; then
     echo ""
     echo "Please check the compiled binaries:"
     echo "  - iodaFEMU at [${blue}${IODA_FEMU_BIN}${reset}] (only for running "ioda" mode experiments)"
-    echo "  - noniodaFEMU at [${blue}${NONIODA_FEMU_BIN}${reset}] (for running "base ideal iod1 iod2 iod3" mode experiments)"
     echo "  - iodaLinux rootfs at [${blue}${IODA_LINUX_BIN}${reset}]"
     echo ""
-
-    #cp ${IODA_FEMU_BIN} bin/iodaFemuBin/
-    #cp ${IODA_LINUX_BIN} bin/iodaLinuxBin/
-
 else
-
     echo ""
     echo "===> ${red}ERROR:${reset} Failed to build IODA, please check [${IODA_BUILD_LOG}] and talk to the IODA authors on hotcrp."
     echo ""
-
 fi
 

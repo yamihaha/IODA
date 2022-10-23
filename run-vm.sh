@@ -3,6 +3,7 @@
 IODA_IMGDIR="./images/"
 IODA_KERNEL="src/iodaLinux/arch/x86/boot/bzImage"
 IODA_FEMU="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
+SHARE_DIR="${HOME}/share/"
 
 echo 2 | sudo tee /sys/kernel/mm/ksm/run >/dev/null 2>&1
 
@@ -20,6 +21,8 @@ sudo ${IODA_FEMU} \
     -enable-kvm \
     -boot menu=on \
     -drive file=${IODA_IMGDIR}/ioda.qcow2,if=virtio,cache=none,aio=native,format=qcow2 \
+    -fsdev local,path=${SHARE_DIR},id=share_dir,security_model=none \
+    -device virtio-9p-pci,fsdev=share_dir,mount_tag=hostshare \
     -device femu,devsz_mb=12288,femu_mode=1 \
     -device femu,devsz_mb=12288,femu_mode=1 \
     -device femu,devsz_mb=12288,femu_mode=1 \

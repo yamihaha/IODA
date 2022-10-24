@@ -42,6 +42,28 @@ enum {
     FEMU_RESET_ACCT = 5,
     FEMU_ENABLE_LOG = 6,
     FEMU_DISABLE_LOG = 7,
+
+    FEMU_SYNC_GC = 8,
+    FEMU_UNSYNC_GC = 9,
+
+    FEMU_ENABLE_LOG_FREE_BLOCKS = 10,
+    FEMU_DISABLE_LOG_FREE_BLOCKS = 11,
+
+    FEMU_WINDOW_1S = 12,
+    FEMU_WINDOW_100MS = 13,
+    FEMU_WINDOW_2S = 14,
+    FEMU_WINDOW_10MS = 15,
+    FEMU_WINDOW_40MS = 16,
+    FEMU_WINDOW_200MS = 17,
+    FEMU_WINDOW_400MS = 18,
+
+    FEMU_ENABLE_DYNAMIC_GC_SYNC = 19,
+    FEMU_DISABLE_DYNAMIC_GC_SYNC = 20,
+
+    FEMU_ENABLE_HARMONIA = 21,
+    FEMU_DISABLE_HARMONIA = 22,
+
+	FEMU_PRINT_AND_RESET_COUNTERS = 23,
 };
 
 
@@ -128,6 +150,12 @@ struct ssdparams {
     double gc_thres_pcent_high;
     int gc_thres_lines_high;
     bool enable_gc_delay;
+    bool enable_gc_sync;
+    bool enable_free_blocks_log;
+    int gc_sync_window;
+    int gc_sync_buffer;
+    bool dynamic_gc_sync;
+    bool harmonia;
 
     /* below are all calculated values */
     int secs_per_blk; /* # of sectors per block */
@@ -202,6 +230,15 @@ struct ssd {
     uint64_t *rmap;     /* reverse mapptbl, assume it's stored in OOB */
     struct write_pointer wp;
     struct line_mgmt lm;
+    uint16_t id; /* unique id for synchronization */
+    int num_gc_in_s;
+    int num_valid_pages_copied_s;
+    uint64_t next_ssd_avail_time;
+    uint64_t earliest_ssd_lun_avail_time;
+
+    // For recording # FEMU level reads blocked by GC
+    int total_reads;
+    int num_reads_blocked_by_gc[5];
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
@@ -209,6 +246,8 @@ struct ssd {
     bool *dataplane_started_ptr;
     QemuThread ftl_thread;
 };
+
+extern uint16_t ssd_id_cnt;
 
 void ssd_init(FemuCtrl *n);
 

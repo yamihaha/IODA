@@ -66,6 +66,8 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
         req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
         req->cqe.cid = cmd.cid;
         req->cmd_opcode = cmd.opcode;
+        /* Coperd: For TIFA */
+        req->tifa_cmd_flag = ((NvmeRwCmd *)&cmd)->rsvd2;
         memcpy(&req->cmd, &cmd, sizeof(NvmeCmd));
 
         if (n->print_log) {
@@ -102,9 +104,20 @@ static void nvme_post_cqe(NvmeCQueue *cq, NvmeRequest *req)
     uint8_t phase = cq->phase;
     hwaddr addr;
 
+    cqe->res64 = req->gcrt;
+
     if (n->print_log) {
         femu_debug("%s,req,lba:%lu,lat:%lu\n", n->devname, req->slba, req->reqlat);
     }
+
+    if (!req->is_write && req->tifa_cmd_flag == 911 && n->print_log) {
+        femu_log("%s,GCT,cqe->res64=%lu\n", n->devname, cqe->res64);
+    }
+    if (req->gcrt) {
+        /* Coperd: For TIFA, force error back to host */
+        req->status = NVME_DNR;
+    }
+
     cqe->status = cpu_to_le16((req->status << 1) | phase);
     cqe->sq_id = cpu_to_le16(sq->sqid);
     cqe->sq_head = cpu_to_le16(sq->head);

@@ -50,7 +50,6 @@ Mkfile.old
 dkms.conf
 
 
-ioda-build.log
-ioda-femu.log
 .DS_Store
 images/ioda.qcow2
+*.log

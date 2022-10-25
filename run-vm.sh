@@ -1,8 +1,8 @@
 #!/bin/bash
 
 IODA_IMGDIR="./images/"
-# IODA_KERNEL="src/iodaLinux/arch/x86/boot/bzImage"
-IODA_FEMU="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
+# IODA_KERNEL="src/iodaLinux-5.4.121/arch/x86/boot/bzImage"
+IODA_FEMU="src/iodaFEMU-b13b482/build-femu/x86_64-softmmu/qemu-system-x86_64"
 SHARE_DIR="${HOME}/share/"
 
 echo 2 | sudo tee /sys/kernel/mm/ksm/run >/dev/null 2>&1

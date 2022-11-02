@@ -409,6 +409,15 @@ void ssd_init(FemuCtrl *n)
 	ssd->num_reads_blocked_by_gc[3] = 0;
 	ssd->num_reads_blocked_by_gc[4] = 0;
 
+    ssd->nand_utilization_log = 0;
+    ssd->nand_end_time = 0;
+    ssd->nand_read_pgs = 0;
+    ssd->nand_write_pgs = 0;
+    ssd->nand_erase_blks = 0;
+    ssd->gc_read_pgs = 0;
+    ssd->gc_write_pgs = 0;
+    ssd->gc_erase_blks = 0;
+
     ssd_init_params(spp);
 
     /* initialize ssd internal layout architecture */
@@ -513,41 +522,14 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
         lat = lun->next_lun_avail_time - cmd_stime;
-#if 0
-        lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
-
-        /* read: then data transfer through channel */
-        chnl_stime = (ch->next_ch_avail_time < lun->next_lun_avail_time) ? \
-            lun->next_lun_avail_time : ch->next_ch_avail_time;
-        ch->next_ch_avail_time = chnl_stime + spp->ch_xfer_lat;
-
-        lat = ch->next_ch_avail_time - cmd_stime;
-#endif
         break;
 
     case NAND_WRITE:
         /* write: transfer data through channel first */
         nand_stime = (lun->next_lun_avail_time < cmd_stime) ? cmd_stime : \
                      lun->next_lun_avail_time;
-        if (ncmd->type == USER_IO) {
-            lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
-        } else {
-            lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
-        }
-        lat = lun->next_lun_avail_time - cmd_stime;
-
-#if 0
-        chnl_stime = (ch->next_ch_avail_time < cmd_stime) ? cmd_stime : \
-                     ch->next_ch_avail_time;
-        ch->next_ch_avail_time = chnl_stime + spp->ch_xfer_lat;
-
-        /* write: then do NAND program */
-        nand_stime = (lun->next_lun_avail_time < ch->next_ch_avail_time) ? \
-            ch->next_ch_avail_time : lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
-
         lat = lun->next_lun_avail_time - cmd_stime;
-#endif
         break;
 
     case NAND_ERASE:
@@ -555,7 +537,6 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
         nand_stime = (lun->next_lun_avail_time < cmd_stime) ? cmd_stime : \
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->blk_er_lat;
-
         lat = lun->next_lun_avail_time - cmd_stime;
         break;
 
@@ -570,6 +551,40 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
 		ssd->earliest_ssd_lun_avail_time = lun->next_lun_avail_time;
 	}
 
+    if (ssd->nand_utilization_log) {
+        if (nand_stime > ssd->nand_end_time) {
+            ftl_log("%s ~%lus, r%lu w%lu e%lu %lu%%, [r%lu w%lu e%lu %lu%%]\n",
+                    ssd->ssdname, ssd->nand_end_time / 1000000000,
+                    ssd->nand_read_pgs, ssd->nand_write_pgs, ssd->nand_erase_blks,
+                    100 *
+                        (ssd->nand_read_pgs * (uint64_t)spp->pg_rd_lat +
+                            ssd->nand_write_pgs * (uint64_t)spp->pg_wr_lat +
+                            ssd->nand_erase_blks * (uint64_t)spp->blk_er_lat) /
+                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns),
+                    ssd->gc_read_pgs, ssd->gc_write_pgs, ssd->gc_erase_blks,
+                    100 *
+                        (ssd->gc_read_pgs * (uint64_t)spp->pg_rd_lat +
+                            ssd->gc_write_pgs * (uint64_t)spp->pg_wr_lat +
+                            ssd->gc_erase_blks * (uint64_t)spp->blk_er_lat) /
+                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns));
+            ssd->nand_end_time =
+                nand_stime - nand_stime % NAND_DIFF_TIME + NAND_DIFF_TIME;
+            ssd->gc_read_pgs = 0;
+            ssd->gc_write_pgs = 0;
+            ssd->gc_erase_blks = 0;
+            ssd->nand_read_pgs = 0;
+            ssd->nand_write_pgs = 0;
+            ssd->nand_erase_blks = 0;
+        }
+        if (ncmd->type == GC_IO) {
+            ssd->gc_read_pgs += (c == NAND_READ);
+            ssd->gc_write_pgs += (c == NAND_WRITE);
+            ssd->gc_erase_blks += (c == NAND_ERASE);
+        }
+        ssd->nand_read_pgs += (c == NAND_READ);
+        ssd->nand_write_pgs += (c == NAND_WRITE);
+        ssd->nand_erase_blks += (c == NAND_ERASE);
+    }
     return lat;
 }
 

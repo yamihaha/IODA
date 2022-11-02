@@ -159,6 +159,12 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         ssd->num_reads_blocked_by_gc[4] = 0;
         break;
 
+    case FEMU_NAND_UTILIZATION_LOG:
+      ssd->nand_utilization_log = 1 - ssd->nand_utilization_log;
+      femu_log("%s, FEMU_NAND_UTILIZATION_LOG TOGGLE, current value: %d\n",
+               n->devname, ssd->nand_utilization_log);
+      break;
+
     default:
         printf("FEMU:%s,Not implemented flip cmd (%lu)\n", n->devname, cdw10);
     }

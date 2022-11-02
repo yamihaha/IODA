@@ -64,6 +64,8 @@ enum {
     FEMU_DISABLE_HARMONIA = 22,
 
 	FEMU_PRINT_AND_RESET_COUNTERS = 23,
+
+	FEMU_NAND_UTILIZATION_LOG = 24,
 };
 
 
@@ -240,12 +242,24 @@ struct ssd {
     int total_reads;
     int num_reads_blocked_by_gc[5];
 
+    uint32_t nand_utilization_log;
+    uint64_t nand_end_time;
+    uint64_t nand_read_pgs;
+    uint64_t nand_write_pgs;
+    uint64_t nand_erase_blks;
+    uint64_t gc_read_pgs;
+    uint64_t gc_write_pgs;
+    uint64_t gc_erase_blks;
+
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
     struct rte_ring **to_poller;
     bool *dataplane_started_ptr;
     QemuThread ftl_thread;
 };
+
+// 1s
+#define NAND_DIFF_TIME  (1000000000)
 
 extern uint16_t ssd_id_cnt;
 

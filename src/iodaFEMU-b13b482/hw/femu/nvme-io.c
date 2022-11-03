@@ -66,7 +66,7 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
         req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
         req->cqe.cid = cmd.cid;
         req->cmd_opcode = cmd.opcode;
-        /* Coperd: For TIFA */
+        /* Coperd: For TIFA *///req的tifa_cmd_flag是从sq中取出的cmd指令的rsvd2决定的
         req->tifa_cmd_flag = ((NvmeRwCmd *)&cmd)->rsvd2;
         memcpy(&req->cmd, &cmd, sizeof(NvmeCmd));
 
@@ -113,7 +113,7 @@ static void nvme_post_cqe(NvmeCQueue *cq, NvmeRequest *req)
     if (!req->is_write && req->tifa_cmd_flag == 911 && n->print_log) {
         femu_log("%s,GCT,cqe->res64=%lu\n", n->devname, cqe->res64);
     }
-    if (req->gcrt) {
+    if (req->gcrt) {//不为0说明IO被阻塞了，且gcrt为gc-remaining-time
         /* Coperd: For TIFA, force error back to host */
         req->status = NVME_DNR;
     }

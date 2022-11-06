@@ -803,7 +803,7 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
 				pthread_mutex_unlock(&global_gc_endtime_lock);
                 return 0;
             }
-        }
+        } 
     }
 
     victim_line = select_victim_line(ssd, force);
@@ -870,20 +870,6 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
     return 0;
 }
 
-static void do_harmonia_gc(struct ssd *ssd) {
-	// Perform GC in all SSDs
-	int i;
-
-	pthread_mutex_lock(&harmonia_override_lock);
-	for (i=0; i < ssd_id_cnt; i++) {
-		harmonia_override[i] = true;
-		// printf("do_harmonia_gc for ssd %d\n", ssd_array[i]->id);
-		// do_gc(ssd_array[i], true);
-	}
-	pthread_mutex_unlock(&harmonia_override_lock);
-	// do_gc(ssd_array[ssd->id], true);
-}
-
 static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -930,7 +916,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             }
         }
 
-        if (!in_gc) {//g-正常读流程，未被gc阻塞
+        if (!in_gc) {//g-如果请求定向设备不在gc中，req->gcrt==0，未被填充
             assert(req->gcrt == 0);
             return maxlat;
         }
@@ -967,14 +953,14 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             maxlat = (sublat > maxlat) ? sublat : maxlat;
         }
 
-        for (i = 0; i < ssd_id_cnt; i++) {
+        for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
             if (req->stime < gc_endtime_array[i]) {
                 num_concurrent_gcs++;
             }
         }
 
         ssd->total_reads++;
-        if (num_concurrent_gcs) {//g-统计同时被gc阻塞的sub-io数量为0，1，2，3，4的次数
+        if (num_concurrent_gcs) {//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
             ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;
         } else {
             ssd->num_reads_blocked_by_gc[0]++;
@@ -1102,23 +1088,8 @@ static void *ftl_thread(void *arg)
 
             /* clean one line if needed (in the background) */
             if (should_gc(ssd)) {
-                if (ssd->sp.harmonia) {
-                    printf("FTL: Doing harmonia GC\n");
-                    do_harmonia_gc(ssd);
-                } else {
                     do_gc(ssd, false, req);
-                }
             }
-
-            pthread_mutex_lock(&harmonia_override_lock);
-            if (ssd->sp.harmonia && harmonia_override[ssd->id]) {
-
-                printf("Doing harmonia GC on SSD%d\n", ssd->id);
-                do_gc(ssd, true, NULL);
-
-                harmonia_override[ssd->id] = false;
-            }
-            pthread_mutex_unlock(&harmonia_override_lock);
 
             // Track and report # of free blocks every 5 seconds
             if (ssd->sp.enable_free_blocks_log) {

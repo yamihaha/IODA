@@ -2,8 +2,8 @@
 
 //#define FEMU_DEBUG_FTL
 
-uint16_t ssd_id_cnt = 0;
-struct ssd *ssd_array[4];
+uint16_t ssd_id_cnt = 0;//g-盘数量
+struct ssd *ssd_array[4];//g-包含了4个ssd的结构体数组
 bool harmonia_override[4] = {false, false, false, false};
 pthread_mutex_t harmonia_override_lock;
 
@@ -799,9 +799,9 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
     int now_ms = now / 1e6;
     int now_s = now / 1e9;
 
-    if (ssd->sp.enable_gc_sync && !force) {
+    if (ssd->sp.enable_gc_sync && !force) {//如果开启了gc同步，且盘空闲line未达到高阈值
         // Synchronizing Time Window logic
-        if (!ssd->sp.dynamic_gc_sync) {
+        if (!ssd->sp.dynamic_gc_sync) {//如果没有开启动态gc同步
             int time_window_ms = ssd->sp.gc_sync_window;
             int buffer_ms = ssd->sp.gc_sync_buffer;
             if (ssd->id != (now_ms/time_window_ms) % ssd_id_cnt || 
@@ -818,7 +818,7 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
 				pthread_mutex_unlock(&global_gc_endtime_lock);
                 return 0;
             }
-        }
+        } 
     }
 
     victim_line = select_victim_line(ssd, force);
@@ -885,20 +885,6 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
     return 0;
 }
 
-static void do_harmonia_gc(struct ssd *ssd) {
-	// Perform GC in all SSDs
-	int i;
-
-	pthread_mutex_lock(&harmonia_override_lock);
-	for (i=0; i < ssd_id_cnt; i++) {
-		harmonia_override[i] = true;
-		// printf("do_harmonia_gc for ssd %d\n", ssd_array[i]->id);
-		// do_gc(ssd_array[i], true);
-	}
-	pthread_mutex_unlock(&harmonia_override_lock);
-	// do_gc(ssd_array[ssd->id], true);
-}
-
 static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -918,9 +904,9 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         ftl_err("start_lpn=%"PRIu64",tt_pgs=%d\n", start_lpn, ssd->sp.tt_pgs);
     }
 
-    req->gcrt = 0;
-#define NVME_CMD_GCT (911)
-    if (req->tifa_cmd_flag == NVME_CMD_GCT) {
+    req->gcrt = 0; //g-gc-remaining time
+#define NVME_CMD_GCT (911)  //g-gc-tolerant 判断是否启用fast-fail机制
+    if (req->tifa_cmd_flag == NVME_CMD_GCT) {//g-如果IO被阻塞掉，启动fast-fail过程
         /* fastfail IO path */
         for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
             ppa = get_maptbl_ent(ssd, lpn);
@@ -935,7 +921,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
                 if (req->gcrt < tgcrt) {
                     req->gcrt = tgcrt;
                 }
-            } else {
+            } else {//g-读请求目标lun未执行gc操作，req->stime >= lun->gc_endtime
                 /* NoGC under fastfail path */
                 struct nand_cmd srd;
                 srd.cmd = NAND_READ;
@@ -945,18 +931,18 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             }
         }
 
-        if (!in_gc) {
+        if (!in_gc) {//g-如果请求定向设备不在gc中，req->gcrt==0，未被填充
             assert(req->gcrt == 0);
             return maxlat;
         }
 
 		for (i = 0; i < ssd_id_cnt; i++) {
 			if (req->stime < gc_endtime_array[i]) {
-				num_concurrent_gcs++;
+				num_concurrent_gcs++;//g-感觉没必要？
 			}
 		}
 
-        return 0;
+        return 0;//g-io被阻塞，到此，如果一个读请求被阻塞，只有gcrt>0这个明显标志？
     } else {
 		int max_gcrt = 0;
         /* normal IO read path */
@@ -969,7 +955,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
                 continue;
             }
 
-            lun = get_lun(ssd, &ppa);
+            lun = get_lun(ssd, &ppa);//g-不执行fastfail机制的话，依然会统计被GC阻塞的io数量，但是不会更新req->gcrt
             if (req->stime < lun->gc_endtime && max_gcrt < lun->gc_endtime - req->stime) {
 				max_gcrt = lun->gc_endtime - req->stime;
             }
@@ -982,20 +968,20 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             maxlat = (sublat > maxlat) ? sublat : maxlat;
         }
 
-        for (i = 0; i < ssd_id_cnt; i++) {
+        for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
             if (req->stime < gc_endtime_array[i]) {
                 num_concurrent_gcs++;
             }
         }
 
         ssd->total_reads++;
-        if (num_concurrent_gcs) {
+        if (num_concurrent_gcs) {//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
             ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;
         } else {
             ssd->num_reads_blocked_by_gc[0]++;
         }
 
-        if (req->tifa_cmd_flag == 1024 && ssd->sp.enable_gc_sync) {
+        if (req->tifa_cmd_flag == 1024 && ssd->sp.enable_gc_sync) {//g-？这里不太清楚
             printf("tifa_cmd_flag=1024, gc_sync on\n");
             return 100000;
         }
@@ -1117,23 +1103,8 @@ static void *ftl_thread(void *arg)
 
             /* clean one line if needed (in the background) */
             if (should_gc(ssd)) {
-                if (ssd->sp.harmonia) {
-                    printf("FTL: Doing harmonia GC\n");
-                    do_harmonia_gc(ssd);
-                } else {
                     do_gc(ssd, false, req);
-                }
             }
-
-            pthread_mutex_lock(&harmonia_override_lock);
-            if (ssd->sp.harmonia && harmonia_override[ssd->id]) {
-
-                printf("Doing harmonia GC on SSD%d\n", ssd->id);
-                do_gc(ssd, true, NULL);
-
-                harmonia_override[ssd->id] = false;
-            }
-            pthread_mutex_unlock(&harmonia_override_lock);
 
             // Track and report # of free blocks every 5 seconds
             if (ssd->sp.enable_free_blocks_log) {

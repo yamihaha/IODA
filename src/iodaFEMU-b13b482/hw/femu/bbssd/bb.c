@@ -78,37 +78,30 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
     case FEMU_WINDOW_1S:
         femu_log("FEMU_WINDOW_1S\n");
         ssd->sp.gc_sync_window = 1000;
-        ssd->sp.gc_sync_buffer = 50;
         break;
     case FEMU_WINDOW_100MS:
         femu_log("FEMU_WINDOW_100MS\n");
         ssd->sp.gc_sync_window = 100;
-        ssd->sp.gc_sync_buffer = 50;
         break;
     case FEMU_WINDOW_2S:
         femu_log("FEMU_WINDOW_2S\n");
         ssd->sp.gc_sync_window = 2000;
-        ssd->sp.gc_sync_buffer = 50;
         break;
     case FEMU_WINDOW_10MS:
         femu_log("FEMU_WINDOW_10MS\n");
         ssd->sp.gc_sync_window = 10;
-        ssd->sp.gc_sync_buffer = 0;
         break;
     case FEMU_WINDOW_40MS:
         femu_log("FEMU_WINDOW_40MS\n");
         ssd->sp.gc_sync_window = 40;
-        ssd->sp.gc_sync_buffer = 0;
         break;
     case FEMU_WINDOW_200MS:
         femu_log("FEMU_WINDOW_200MS\n");
         ssd->sp.gc_sync_window = 200;
-        ssd->sp.gc_sync_buffer = 50;
         break;
     case FEMU_WINDOW_400MS:
         femu_log("FEMU_WINDOW_400MS\n");
         ssd->sp.gc_sync_window = 400;
-        ssd->sp.gc_sync_buffer = 50;
         break;
 
     case FEMU_ENABLE_DYNAMIC_GC_SYNC:

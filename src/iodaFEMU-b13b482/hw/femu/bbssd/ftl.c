@@ -296,7 +296,6 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->enable_gc_delay = true;
     spp->enable_gc_sync = false;
     spp->gc_sync_window = 100;
-    spp->gc_sync_buffer = 50;
     spp->dynamic_gc_sync = false;
     spp->harmonia = false;
 
@@ -802,10 +801,7 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
         // Synchronizing Time Window logic
         if (!ssd->sp.dynamic_gc_sync) {//如果没有开启动态gc同步
             int time_window_ms = ssd->sp.gc_sync_window;
-            int buffer_ms = ssd->sp.gc_sync_buffer;
-            if (ssd->id != (now_ms/time_window_ms) % ssd_id_cnt || 
-                // Within buffer of end of GC-window
-                ssd->id != ((now_ms+buffer_ms)/time_window_ms) % ssd_id_cnt) {
+            if (ssd->id != (now_ms/time_window_ms) % ssd_id_cnt) {
                 return 0;
             }
 		// Dynamic Synchronization

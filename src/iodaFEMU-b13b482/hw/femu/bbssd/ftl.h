@@ -151,7 +151,6 @@ struct ssdparams {
     bool enable_gc_delay;
     bool enable_gc_sync;
     int gc_sync_window;
-    int gc_sync_buffer;
     bool dynamic_gc_sync;
     bool harmonia;
 

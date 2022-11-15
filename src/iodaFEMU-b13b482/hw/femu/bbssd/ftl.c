@@ -12,9 +12,7 @@ static void *ftl_thread(void *arg);
 //unsigned int pages_read = 0;
 int free_line_print_time[4] = {-1, -1, -1, -1};
 int prev_time_s[4] = {0, 0, 0, 0};
-uint64_t global_gc_endtime = 0;
 uint64_t gc_endtime_array[4];
-pthread_mutex_t global_gc_endtime_lock;
 uint64_t prev_req_stimes[4];
 
 static inline bool should_gc(struct ssd *ssd)
@@ -296,7 +294,6 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->enable_gc_delay = true;
     spp->enable_gc_sync = false;
     spp->gc_sync_window = 100;
-    spp->dynamic_gc_sync = false;
     spp->harmonia = false;
 
     printf("spp->pgs_per_line: %d\n", spp->pgs_per_line);
@@ -393,7 +390,6 @@ void ssd_init(FemuCtrl *n)
 	ssd_array[ssd->id] = ssd;
     ssd_id_cnt++;
     ftl_log("GCSYNC SSD initialized with id %d\n", ssd->id);
-	pthread_mutex_init(&global_gc_endtime_lock, NULL);
 	ssd->next_ssd_avail_time = 0;
 	ssd->earliest_ssd_lun_avail_time = UINT64_MAX;
 	gc_endtime_array[ssd->id] = 0;
@@ -799,28 +795,14 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
 
     if (ssd->sp.enable_gc_sync && !force) {//如果开启了gc同步，且盘空闲line未达到高阈值
         // Synchronizing Time Window logic
-        if (!ssd->sp.dynamic_gc_sync) {//如果没有开启动态gc同步
-            int time_window_ms = ssd->sp.gc_sync_window;
-            if (ssd->id != (now_ms/time_window_ms) % ssd_id_cnt) {
-                return 0;
-            }
-		// Dynamic Synchronization
-        } else {
-            // printf("Now (%lld)\n", (long long)now);
-			pthread_mutex_lock(&global_gc_endtime_lock);
-            if (req->stime < global_gc_endtime + 10000000) { // 10ms buffer
-                // printf("Rejecting gc: now (%lld) < global_gc_endtime (%lld)\n", (long long)now, (long long)global_gc_endtime);
-				pthread_mutex_unlock(&global_gc_endtime_lock);
-                return 0;
-            }
-        } 
+        int time_window_ms = ssd->sp.gc_sync_window;
+        if (ssd->id != (now_ms/time_window_ms) % ssd_id_cnt) {
+            return 0;
+        }
     }
 
     victim_line = select_victim_line(ssd, force);
     if (!victim_line) {
-        if (ssd->sp.enable_gc_sync && !force && ssd->sp.dynamic_gc_sync) {
-			pthread_mutex_unlock(&global_gc_endtime_lock);
-		}
         return -1;
     }
 
@@ -848,21 +830,11 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
             }
 
             lunp->gc_endtime = lunp->next_lun_avail_time;
-            if (ssd->sp.dynamic_gc_sync) {
-				if (lunp->gc_endtime > global_gc_endtime) {
-					global_gc_endtime = lunp->gc_endtime;
-					// printf("Setting global_gc_endtime: %lld\n", (long long)global_gc_endtime);
-				}
-			}
 			if (lunp->gc_endtime > gc_endtime_array[ssd->id]) {
 				gc_endtime_array[ssd->id] = lunp->gc_endtime;
 			}
         }
     }
-
-	if (ssd->sp.enable_gc_sync && !force && ssd->sp.dynamic_gc_sync) {
-		pthread_mutex_unlock(&global_gc_endtime_lock);
-	}
 
     /* update line status */
     mark_line_free(ssd, &ppa);

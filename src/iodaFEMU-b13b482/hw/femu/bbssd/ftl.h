@@ -54,9 +54,6 @@ enum {
     FEMU_WINDOW_200MS = 17,
     FEMU_WINDOW_400MS = 18,
 
-    FEMU_ENABLE_DYNAMIC_GC_SYNC = 19,
-    FEMU_DISABLE_DYNAMIC_GC_SYNC = 20,
-
     FEMU_ENABLE_HARMONIA = 21,
     FEMU_DISABLE_HARMONIA = 22,
 
@@ -151,7 +148,6 @@ struct ssdparams {
     bool enable_gc_delay;
     bool enable_gc_sync;
     int gc_sync_window;
-    bool dynamic_gc_sync;
     bool harmonia;
 
     /* below are all calculated values */

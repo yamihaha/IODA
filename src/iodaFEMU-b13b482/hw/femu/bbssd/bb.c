@@ -104,15 +104,6 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         ssd->sp.gc_sync_window = 400;
         break;
 
-    case FEMU_ENABLE_DYNAMIC_GC_SYNC:
-        femu_log("FEMU_ENABLE_DYNAMIC_GC_SYNC\n");
-        ssd->sp.dynamic_gc_sync = true;
-        break;
-    case FEMU_DISABLE_DYNAMIC_GC_SYNC:
-        femu_log("FEMU_DISABLE_DYNAMIC_GC_SYNC\n");
-        ssd->sp.dynamic_gc_sync = false;
-        break;
-
     case FEMU_ENABLE_HARMONIA:
         femu_log("FEMU_ENABLE_HARMONIA\n");
         ssd->sp.harmonia = true;

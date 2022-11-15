@@ -252,8 +252,8 @@ struct ssd {
     QemuThread ftl_thread;
 };
 
-// 1s
-#define NAND_DIFF_TIME  (1000000000)
+// 5s
+#define NAND_DIFF_TIME  (5000000000)
 
 extern uint16_t ssd_id_cnt;
 

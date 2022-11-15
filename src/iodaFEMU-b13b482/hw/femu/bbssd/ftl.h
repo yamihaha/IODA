@@ -211,6 +211,8 @@ struct nand_cmd {
     int64_t stime; /* Coperd: request arrival time */
 };
 
+#define SSD_NUM (5)
+
 struct ssd {
     char *ssdname;
     struct ssdparams sp;
@@ -227,7 +229,7 @@ struct ssd {
 
     // For recording # FEMU level reads blocked by GC
     int total_reads;
-    int num_reads_blocked_by_gc[5];
+    int num_reads_blocked_by_gc[SSD_NUM + 1];
 
     uint32_t nand_utilization_log;
     uint64_t nand_end_time;

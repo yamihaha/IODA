@@ -3,8 +3,8 @@
 //#define FEMU_DEBUG_FTL
 
 uint16_t ssd_id_cnt = 0;//g-盘数量
-struct ssd *ssd_array[4];//g-包含了4个ssd的结构体数组
-uint64_t gc_endtime_array[4];
+struct ssd *ssd_array[SSD_NUM];//g-包含了 SSD_NUM 个ssd的结构体数组
+uint64_t gc_endtime_array[SSD_NUM];
 
 static void *ftl_thread(void *arg);
 
@@ -374,11 +374,9 @@ void ssd_init(FemuCtrl *n)
 	gc_endtime_array[ssd->id] = 0;
 
 	ssd->total_reads = 0;
-	ssd->num_reads_blocked_by_gc[0] = 0;
-	ssd->num_reads_blocked_by_gc[1] = 0;
-	ssd->num_reads_blocked_by_gc[2] = 0;
-	ssd->num_reads_blocked_by_gc[3] = 0;
-	ssd->num_reads_blocked_by_gc[4] = 0;
+    for (int i = 0; i <= SSD_NUM; i++) {
+	    ssd->num_reads_blocked_by_gc[i] = 0;
+    }
 
     ssd->nand_utilization_log = 0;
     ssd->nand_end_time = 0;
@@ -870,12 +868,6 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             return maxlat;
         }
 
-		for (i = 0; i < ssd_id_cnt; i++) {
-			if (req->stime < gc_endtime_array[i]) {
-				num_concurrent_gcs++;//g-感觉没必要？
-			}
-		}
-
         return 0;//g-io被阻塞，到此，如果一个读请求被阻塞，只有gcrt>0这个明显标志？
     } else {
 		int max_gcrt = 0;
@@ -909,11 +901,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         }
 
         ssd->total_reads++;
-        if (num_concurrent_gcs) {//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
-            ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;
-        } else {
-            ssd->num_reads_blocked_by_gc[0]++;
-        }
+        ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
 
         if (req->tifa_cmd_flag == 1024 && ssd->sp.enable_gc_sync) {//g-？这里不太清楚
             printf("tifa_cmd_flag=1024, gc_sync on\n");

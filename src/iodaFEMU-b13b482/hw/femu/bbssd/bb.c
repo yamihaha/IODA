@@ -106,23 +106,20 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
 
     case FEMU_PRINT_AND_RESET_COUNTERS:
         femu_log("FEMU_PRINT_AND_RESET_COUNTERS\n");
-        femu_log("SSD%d: Total %d, 0GC %d, 1GC %d, 2GC %d, 3GC %d, 4GC %d\n",
-                ssd->id, ssd->total_reads, ssd->num_reads_blocked_by_gc[0],
-                ssd->num_reads_blocked_by_gc[1], ssd->num_reads_blocked_by_gc[2],
-                ssd->num_reads_blocked_by_gc[3], ssd->num_reads_blocked_by_gc[4]);
-        femu_log("SSD%d: 0GC %.4f, 1GC %.4f, 2GC %.4f, 3GC %.4f, 4GC %.4f\n",
-                ssd->id,
-                (float)ssd->num_reads_blocked_by_gc[0] * 100 / ssd->total_reads,
-                (float)ssd->num_reads_blocked_by_gc[1] * 100 / ssd->total_reads,
-                (float)ssd->num_reads_blocked_by_gc[2] * 100 / ssd->total_reads,
-                (float)ssd->num_reads_blocked_by_gc[3] * 100 / ssd->total_reads,
-                (float)ssd->num_reads_blocked_by_gc[4] * 100 / ssd->total_reads);
+        femu_log("SSD%d: Total %d,", ssd->id, ssd->total_reads);
+        for (int i = 0; i <= SSD_NUM; i++) {
+            printf(" %dGC %d,", i, ssd->num_reads_blocked_by_gc[i]);
+        }
+        printf("\n");
+        femu_log("SSD%d:", ssd->id);
+        for (int i = 0; i <= SSD_NUM; i++) {
+            printf(" %dGC %.4f,", i, (float)ssd->num_reads_blocked_by_gc[i] * 100 / ssd->total_reads);
+        }
+        printf("\n");
         ssd->total_reads = 0;
-        ssd->num_reads_blocked_by_gc[0] = 0;
-        ssd->num_reads_blocked_by_gc[1] = 0;
-        ssd->num_reads_blocked_by_gc[2] = 0;
-        ssd->num_reads_blocked_by_gc[3] = 0;
-        ssd->num_reads_blocked_by_gc[4] = 0;
+        for (int i = 0; i <= SSD_NUM; i++) {
+            ssd->num_reads_blocked_by_gc[i] = 0;
+        }
         break;
 
     case FEMU_NAND_UTILIZATION_LOG:

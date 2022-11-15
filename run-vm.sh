@@ -27,6 +27,7 @@ sudo ${IODA_FEMU} \
     -device femu,devsz_mb=12288,femu_mode=1 \
     -device femu,devsz_mb=12288,femu_mode=1 \
     -device femu,devsz_mb=12288,femu_mode=1 \
+    -device femu,devsz_mb=12288,femu_mode=1 \
     -netdev user,id=user0,hostfwd=tcp::10101-:22 \
     -device virtio-net-pci,netdev=user0 \
     -nographic | tee ./ioda-femu.log 2>&1 \

@@ -75,15 +75,6 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         femu_log("%s,FEMU GC Synchronization [Disabled]!\n", n->devname);
         break;
 
-    case FEMU_ENABLE_LOG_FREE_BLOCKS:
-        ssd->sp.enable_free_blocks_log = true;
-        femu_log("%s,FEMU log free blocks [Enabled]!\n", n->devname);
-        break;
-    case FEMU_DISABLE_LOG_FREE_BLOCKS:
-        ssd->sp.enable_free_blocks_log = false;
-        femu_log("%s,FEMU log free blocks [Disabled]!\n", n->devname);
-        break;
-
     case FEMU_WINDOW_1S:
         femu_log("FEMU_WINDOW_1S\n");
         ssd->sp.gc_sync_window = 1000;

@@ -46,9 +46,6 @@ enum {
     FEMU_SYNC_GC = 8,
     FEMU_UNSYNC_GC = 9,
 
-    FEMU_ENABLE_LOG_FREE_BLOCKS = 10,
-    FEMU_DISABLE_LOG_FREE_BLOCKS = 11,
-
     FEMU_WINDOW_1S = 12,
     FEMU_WINDOW_100MS = 13,
     FEMU_WINDOW_2S = 14,
@@ -153,7 +150,6 @@ struct ssdparams {
     int gc_thres_lines_high;
     bool enable_gc_delay;
     bool enable_gc_sync;
-    bool enable_free_blocks_log;
     int gc_sync_window;
     int gc_sync_buffer;
     bool dynamic_gc_sync;

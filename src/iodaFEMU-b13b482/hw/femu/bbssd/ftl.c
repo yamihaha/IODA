@@ -295,7 +295,6 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->gc_thres_lines_high = (int)((1 - spp->gc_thres_pcent_high) * spp->tt_lines);
     spp->enable_gc_delay = true;
     spp->enable_gc_sync = false;
-    spp->enable_free_blocks_log = false;
     spp->gc_sync_window = 100;
     spp->gc_sync_buffer = 50;
     spp->dynamic_gc_sync = false;
@@ -829,16 +828,6 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
         return -1;
     }
 
-    if (ssd->sp.enable_free_blocks_log) {
-        if ((!prev_time_s[ssd->id]) || (now_s != prev_time_s[ssd->id])) {
-            prev_time_s[ssd->id] = now_s;
-            ssd->num_gc_in_s = 1;
-            ssd->num_valid_pages_copied_s = 0;
-        } else {
-            ssd->num_gc_in_s++;
-        }
-    }
-
     ppa.g.blk = victim_line->id;
     ftl_debug("GC-ing line:%d,ipc=%d,victim=%d,full=%d,free=%d\n", ppa.g.blk,
               victim_line->ipc, ssd->lm.victim_line_cnt, ssd->lm.full_line_cnt,
@@ -1104,23 +1093,6 @@ static void *ftl_thread(void *arg)
             /* clean one line if needed (in the background) */
             if (should_gc(ssd)) {
                     do_gc(ssd, false, req);
-            }
-
-            // Track and report # of free blocks every 5 seconds
-            if (ssd->sp.enable_free_blocks_log) {
-                int time_ms = qemu_clock_get_ns(QEMU_CLOCK_REALTIME) / 1e6;
-                if (!(time_ms % 500) && free_line_print_time[ssd->id] != time_ms) {
-                    int num_free_blocks = ssd->lm.free_line_cnt * ssd->sp.blks_per_line;
-                    struct write_pointer *wpp = &ssd->wp;
-                    struct ssdparams *spp = &ssd->sp;
-                    // Count # of free blocks in this line
-                    // only free if not a single page has been written to
-                    if (!wpp->pg) {
-                        num_free_blocks += (spp->tt_luns-(wpp->lun*ssd->sp.nchs+wpp->ch));
-                    }
-                    free_line_print_time[ssd->id] = time_ms;
-                    // printf("Num Free Blocks,%s,%d,%d\n", ssd->ssdname, time_ms,  num_free_blocks);
-                }
             }
         }
     }

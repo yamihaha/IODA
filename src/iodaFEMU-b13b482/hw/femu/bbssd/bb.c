@@ -104,15 +104,6 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         ssd->sp.gc_sync_window = 400;
         break;
 
-    case FEMU_ENABLE_HARMONIA:
-        femu_log("FEMU_ENABLE_HARMONIA\n");
-        ssd->sp.harmonia = true;
-        break;
-    case FEMU_DISABLE_HARMONIA:
-        femu_log("FEMU_DISABLE_HARMONIA\n");
-        ssd->sp.harmonia = false;
-        break;
-
     case FEMU_PRINT_AND_RESET_COUNTERS:
         femu_log("FEMU_PRINT_AND_RESET_COUNTERS\n");
         femu_log("SSD%d: Total %d, 0GC %d, 1GC %d, 2GC %d, 3GC %d, 4GC %d\n",

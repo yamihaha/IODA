@@ -4,16 +4,9 @@
 
 uint16_t ssd_id_cnt = 0;//g-盘数量
 struct ssd *ssd_array[4];//g-包含了4个ssd的结构体数组
-bool harmonia_override[4] = {false, false, false, false};
-pthread_mutex_t harmonia_override_lock;
+uint64_t gc_endtime_array[4];
 
 static void *ftl_thread(void *arg);
-
-//unsigned int pages_read = 0;
-int free_line_print_time[4] = {-1, -1, -1, -1};
-int prev_time_s[4] = {0, 0, 0, 0};
-uint64_t gc_endtime_array[4];
-uint64_t prev_req_stimes[4];
 
 static inline bool should_gc(struct ssd *ssd)
 {
@@ -234,17 +227,6 @@ static struct ppa get_new_page(struct ssd *ssd)
     return ppa;
 }
 
-static void check_params(struct ssdparams *spp)
-{
-    /*
-     * we are using a general write pointer increment method now, no need to
-     * force luns_per_ch and nchs to be power of 2
-     */
-
-    //ftl_assert(is_power_of_2(spp->luns_per_ch));
-    //ftl_assert(is_power_of_2(spp->nchs));
-}
-
 static void ssd_init_params(struct ssdparams *spp)
 {
     spp->secsz = 512;
@@ -294,14 +276,11 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->enable_gc_delay = true;
     spp->enable_gc_sync = false;
     spp->gc_sync_window = 100;
-    spp->harmonia = false;
 
     printf("spp->pgs_per_line: %d\n", spp->pgs_per_line);
     printf("spp->tt_lines: %d\n", spp->tt_lines);
     printf("spp->tt_blks: %d\n", spp->tt_blks);
     printf("spp->gc_thres_lines: %d\n", spp->gc_thres_lines);
-
-    check_params(spp);
 }
 
 static void ssd_init_nand_page(struct nand_page *pg, struct ssdparams *spp)
@@ -393,8 +372,6 @@ void ssd_init(FemuCtrl *n)
 	ssd->next_ssd_avail_time = 0;
 	ssd->earliest_ssd_lun_avail_time = UINT64_MAX;
 	gc_endtime_array[ssd->id] = 0;
-	prev_req_stimes[ssd->id] = 0;
-	pthread_mutex_init(&harmonia_override_lock, NULL);
 
 	ssd->total_reads = 0;
 	ssd->num_reads_blocked_by_gc[0] = 0;
@@ -1056,11 +1033,9 @@ static void *ftl_thread(void *arg)
                 ftl_err("FTL to_poller enqueue failed\n");
             }
 
-            prev_req_stimes[ssd->id] = req->stime;
-
             /* clean one line if needed (in the background) */
             if (should_gc(ssd)) {
-                    do_gc(ssd, false, req);
+                do_gc(ssd, false, req);
             }
         }
     }

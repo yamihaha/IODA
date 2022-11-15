@@ -54,9 +54,6 @@ enum {
     FEMU_WINDOW_200MS = 17,
     FEMU_WINDOW_400MS = 18,
 
-    FEMU_ENABLE_HARMONIA = 21,
-    FEMU_DISABLE_HARMONIA = 22,
-
 	FEMU_PRINT_AND_RESET_COUNTERS = 23,
 
 	FEMU_NAND_UTILIZATION_LOG = 24,
@@ -148,7 +145,6 @@ struct ssdparams {
     bool enable_gc_delay;
     bool enable_gc_sync;
     int gc_sync_window;
-    bool harmonia;
 
     /* below are all calculated values */
     int secs_per_blk; /* # of sectors per block */

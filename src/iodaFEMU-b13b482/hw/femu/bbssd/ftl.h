@@ -12,14 +12,18 @@ enum {
     NAND_WRITE = 1,
     NAND_ERASE = 2,
 
+    //ioda origin config
+    NAND_READ_LATENCY = 40000,
+    NAND_PROG_LATENCY = 200000,
+    NAND_ERASE_LATENCY = 2000000,
     // TLC
     // NAND_READ_LATENCY = 66000,
     // NAND_PROG_LATENCY = 730000,
     // NAND_ERASE_LATENCY = 4800000,
     // QLC
-    NAND_READ_LATENCY = 140000,
-    NAND_PROG_LATENCY = 3102000,
-    NAND_ERASE_LATENCY = 3500000,
+    // NAND_READ_LATENCY = 140000,
+    // NAND_PROG_LATENCY = 3102000,
+    // NAND_ERASE_LATENCY = 3500000,
 };
 
 enum {
@@ -216,8 +220,7 @@ struct nand_cmd {
     int64_t stime; /* Coperd: request arrival time */
 };
 
-#define SSD_NUM (5)
-
+#define SSD_NUM (4)
 struct ssd {
     char *ssdname;
     struct ssdparams sp;
@@ -244,6 +247,18 @@ struct ssd {
     uint64_t gc_read_pgs;
     uint64_t gc_write_pgs;
     uint64_t gc_erase_blks;
+
+
+
+    //增加读请求统计量
+    int total_gcs; //总GC次数
+    int reads_nor; //正常读请求数量
+    int reads_block; //阻塞读请求数量
+    int reads_recon; //重构读请求数量
+    int reads_reblk; //重构被阻塞读请求数量
+
+
+
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;

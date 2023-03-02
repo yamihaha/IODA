@@ -177,6 +177,7 @@ struct nand_cmd {
     int64_t stime; /* Coperd: request arrival time */
 };
 
+#define SSD_NUM (4)
 struct ssd {
     char *ssdname;
     struct ssdparams sp;
@@ -193,7 +194,24 @@ struct ssd {
 
 	// For recording # FEMU level reads blocked by GC
 	int total_reads;
-	int num_reads_blocked_by_gc[5];
+	int num_reads_blocked_by_gc[SSD_NUM];
+
+    //bindwidth utlization statistics
+    uint32_t nand_utilization_log;
+    uint64_t nand_end_time;
+    uint64_t nand_read_pgs;
+    uint64_t nand_write_pgs;
+    uint64_t nand_erase_blks;
+    uint64_t gc_read_pgs;
+    uint64_t gc_write_pgs;
+    uint64_t gc_erase_blks;
+
+    //增加读请求统计量
+    int total_gcs; //总GC次数
+    int reads_nor; //正常读请求数量
+    int reads_block; //阻塞读请求数量
+    int reads_recon; //重构读请求数量
+    int reads_reblk; //重构被阻塞读请求数量
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring *to_ftl;
@@ -201,6 +219,9 @@ struct ssd {
     bool *dataplane_started_ptr;
     QemuThread ftl_thread;
 };
+
+// 5s
+#define NAND_DIFF_TIME  (5000000000)
 
 extern uint16_t ssd_id_cnt;
 

@@ -37,18 +37,19 @@ cp ../femu-scripts/femu-compile.sh .
 make clean >/dev/null 2>&1
 ./femu-compile.sh >>${IODA_BUILD_LOG} 2>&1
 
-# Third, build iodaLinux
-echo ""
-echo "====> ${green}[3/3]${reset} Building iodaLinux ..."
-echo "      Note: this is an optional step since we will use a pre-compiled version of the Linux rootfs in our VM image"
-echo ""
-cd ${IODA_TOPDIR}/src/iodaLinux
-make clean >/dev/null 2>&1
-cp ioda-config .config
-make oldconfig >>${IODA_BUILD_LOG} 2>&1
-make -j32 >>${IODA_BUILD_LOG} 2>&1
-cd ../../
+# # Third, build iodaLinux
+# echo ""
+# echo "====> ${green}[3/3]${reset} Building iodaLinux ..."
+# echo "      Note: this is an optional step since we will use a pre-compiled version of the Linux rootfs in our VM image"
+# echo ""
+# cd ${IODA_TOPDIR}/src/iodaLinux
+# make clean >/dev/null 2>&1
+# cp ioda-config .config
+# make oldconfig >>${IODA_BUILD_LOG} 2>&1
+# make -j32 >>${IODA_BUILD_LOG} 2>&1
+# cd ../../
 
+cd ${IODA_TOPDIR}
 
 IODA_FEMU_BIN="src/iodaFEMU/build-femu/x86_64-softmmu/qemu-system-x86_64"
 IODA_LINUX_BIN="src/iodaLinux/arch/x86/boot/bzImage"

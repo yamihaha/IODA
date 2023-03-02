@@ -762,6 +762,8 @@ enum {
     FEMU_DISABLE_HARMONIA = 22,
 
 	FEMU_PRINT_AND_RESET_COUNTERS = 23,
+
+    FEMU_NAND_UTILIZATION_LOG = 24,
 };
 
 static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
@@ -881,29 +883,40 @@ static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
         n->ssd.sp.harmonia = false;
         break;
 
-	case FEMU_PRINT_AND_RESET_COUNTERS:
+    case FEMU_PRINT_AND_RESET_COUNTERS:
         printf("FEMU_PRINT_AND_RESET_COUNTERS\n");
-		printf("SSD%d: Total %d, 0GC %d, 1GC %d, 2GC %d, 3GC %d, 4GC %d\n", 
-			n->ssd.id, n->ssd.total_reads, 
-			n->ssd.num_reads_blocked_by_gc[0], 
-			n->ssd.num_reads_blocked_by_gc[1], 
-			n->ssd.num_reads_blocked_by_gc[2], 
-			n->ssd.num_reads_blocked_by_gc[3], 
-			n->ssd.num_reads_blocked_by_gc[4]);
-		printf("SSD%d: 0GC %.4f, 1GC %.4f, 2GC %.4f, 3GC %.4f, 4GC %.4f\n", 
-			n->ssd.id, 
-			(float)n->ssd.num_reads_blocked_by_gc[0]*100/n->ssd.total_reads, 
-			(float)n->ssd.num_reads_blocked_by_gc[1]*100/n->ssd.total_reads, 
-			(float)n->ssd.num_reads_blocked_by_gc[2]*100/n->ssd.total_reads, 
-			(float)n->ssd.num_reads_blocked_by_gc[3]*100/n->ssd.total_reads, 
-			(float)n->ssd.num_reads_blocked_by_gc[4]*100/n->ssd.total_reads);
+        printf("SSD%d:", n->ssd.id);
+        for (int i = 0; i <= SSD_NUM; i++) {
+            printf(" %dGC %d,", i, n->ssd.num_reads_blocked_by_gc[i]);
+        }
+        printf("\n");
+        for (int i = 0; i <= SSD_NUM; i++) {
+            printf(" %dGC %.4f, ", i, (float)n->ssd.num_reads_blocked_by_gc[i] * 100 / n->ssd.total_reads);
+        }
+        printf("\n");
+
+        printf("total_gc:%d ,  total_reads:%d\n", n->ssd.total_gcs,n->ssd.total_reads );
+        printf("total_nor:%d ,  total_block:%d ,  total_recon:%d ,  total_rebl:%d\n",n->ssd.reads_nor,n->ssd.reads_block,n->ssd.reads_recon,n->ssd.reads_reblk);
+
+        //清除数据
+        for (int i = 0; i <= SSD_NUM; i++) {
+            n->ssd.num_reads_blocked_by_gc[i] = 0;
+        }
+        //重置gcs，reads for block nor recon rebl
         n->ssd.total_reads = 0;
-		n->ssd.num_reads_blocked_by_gc[0] = 0;
-		n->ssd.num_reads_blocked_by_gc[1] = 0;
-		n->ssd.num_reads_blocked_by_gc[2] = 0;
-		n->ssd.num_reads_blocked_by_gc[3] = 0;
-		n->ssd.num_reads_blocked_by_gc[4] = 0;
+        n->ssd.total_gcs = 0;
+        n->ssd.reads_block =0;
+        n->ssd.reads_nor =0;
+        n->ssd.reads_recon =0;
+        n->ssd.reads_reblk =0;
+
         break;
+
+    case FEMU_NAND_UTILIZATION_LOG:
+      n->ssd.nand_utilization_log = 1 - n->ssd.nand_utilization_log;
+      printf("%s, FEMU_NAND_UTILIZATION_LOG TOGGLE, current value: %d\n",
+               n->devname, n->ssd.nand_utilization_log);
+      break;
 
     default:
         printf("Coperd,%s,Not implemented flip cmd (%lu)\n", n->devname, cdw10);

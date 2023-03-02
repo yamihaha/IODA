@@ -6,19 +6,19 @@
 #include "ftl.h"
 
 uint16_t ssd_id_cnt = 0;
-struct ssd *ssd_array[4];
-bool harmonia_override[4] = {false, false, false, false};
+struct ssd *ssd_array[SSD_NUM];
+bool harmonia_override[SSD_NUM];
 pthread_mutex_t harmonia_override_lock;
 
 static void *ftl_thread(void *arg);
 
 //unsigned int pages_read = 0;
-int free_line_print_time[4] = {-1, -1, -1, -1};
-int prev_time_s[4] = {0, 0, 0, 0};
+int free_line_print_time[SSD_NUM];
+int prev_time_s[SSD_NUM];
 uint64_t global_gc_endtime = 0;
-uint64_t gc_endtime_array[4];
+uint64_t gc_endtime_array[SSD_NUM];
 pthread_mutex_t global_gc_endtime_lock;
-uint64_t prev_req_stimes[4];
+uint64_t prev_req_stimes[SSD_NUM];
 
 static inline bool should_gc(struct ssd *ssd)
 {
@@ -392,12 +392,32 @@ void ssd_init(struct ssd *ssd)
 	prev_req_stimes[ssd->id] = 0;
 	pthread_mutex_init(&harmonia_override_lock, NULL);
 
-	ssd->total_reads = 0;
-	ssd->num_reads_blocked_by_gc[0] = 0;
-	ssd->num_reads_blocked_by_gc[1] = 0;
-	ssd->num_reads_blocked_by_gc[2] = 0;
-	ssd->num_reads_blocked_by_gc[3] = 0;
-	ssd->num_reads_blocked_by_gc[4] = 0;
+    //多盘参数初始化
+    free_line_print_time[ssd->id] = -1;
+    prev_time_s[ssd->id] = 0;
+    harmonia_override[ssd->id] = false ;
+
+
+    for (int i = 0; i <= SSD_NUM; i++) {
+	    ssd->num_reads_blocked_by_gc[i] = 0;
+    }
+
+    ssd->nand_utilization_log = 0;
+    ssd->nand_end_time = 0;
+    ssd->nand_read_pgs = 0;
+    ssd->nand_write_pgs = 0;
+    ssd->nand_erase_blks = 0;
+    ssd->gc_read_pgs = 0;
+    ssd->gc_write_pgs = 0;
+    ssd->gc_erase_blks = 0;
+
+    //初始化统计量
+    ssd->total_reads = 0;
+    ssd->total_gcs = 0;
+    ssd->reads_nor = 0; //正常读请求数量
+    ssd->reads_block = 0; //阻塞读请求数量
+    ssd->reads_recon = 0; //重构读请求数量
+    ssd->reads_reblk = 0; //重构被阻塞读请求数量
 
     ssd_init_params(spp);
 
@@ -562,6 +582,40 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa,
 	if (lun->next_lun_avail_time < ssd->earliest_ssd_lun_avail_time) {
 		ssd->earliest_ssd_lun_avail_time = lun->next_lun_avail_time;
 	}
+    if (ssd->nand_utilization_log) {
+        if (nand_stime > ssd->nand_end_time) {
+            printf("%s ~%lus, r%lu w%lu e%lu %lu%%, [r%lu w%lu e%lu %lu%%]\n",
+                    ssd->ssdname, ssd->nand_end_time / 1000000000,
+                    ssd->nand_read_pgs, ssd->nand_write_pgs, ssd->nand_erase_blks,
+                    100 *
+                        (ssd->nand_read_pgs * (uint64_t)spp->pg_rd_lat +
+                            ssd->nand_write_pgs * (uint64_t)spp->pg_wr_lat +
+                            ssd->nand_erase_blks * (uint64_t)spp->blk_er_lat) /
+                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns),
+                    ssd->gc_read_pgs, ssd->gc_write_pgs, ssd->gc_erase_blks,
+                    100 *
+                        (ssd->gc_read_pgs * (uint64_t)spp->pg_rd_lat +
+                            ssd->gc_write_pgs * (uint64_t)spp->pg_wr_lat +
+                            ssd->gc_erase_blks * (uint64_t)spp->blk_er_lat) /
+                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns));
+            ssd->nand_end_time =
+                nand_stime - nand_stime % NAND_DIFF_TIME + NAND_DIFF_TIME;
+            ssd->gc_read_pgs = 0;
+            ssd->gc_write_pgs = 0;
+            ssd->gc_erase_blks = 0;
+            ssd->nand_read_pgs = 0;
+            ssd->nand_write_pgs = 0;
+            ssd->nand_erase_blks = 0;
+        }
+        if (ncmd->stime == 0) {
+            ssd->gc_read_pgs += (c == NAND_READ);
+            ssd->gc_write_pgs += (c == NAND_WRITE);
+            ssd->gc_erase_blks += (c == NAND_ERASE);
+        }
+        ssd->nand_read_pgs += (c == NAND_READ);
+        ssd->nand_write_pgs += (c == NAND_WRITE);
+        ssd->nand_erase_blks += (c == NAND_ERASE);
+    }
 
     return lat;
 }
@@ -988,7 +1042,7 @@ static void *ftl_thread(void *arg)
             case 0:
                 lat = ssd_read(ssd, req);
                 if (lat > 1e9) {
-                    printf("FEMU: Read latency is > 1s, what's going on!\n");
+                    // printf("FEMU: Read latency is > 1s, what's going on!\n");
                 }
                 break;
             default:
@@ -1080,6 +1134,15 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     //assert(end_lpn < spp->tt_pgs);
     /* for list of NAND page reads involved in this external request, do: */
 
+    ssd->total_reads++;
+
+    for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
+            if (req->stime < gc_endtime_array[i]) {
+                num_concurrent_gcs++;
+            }
+        }
+    ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
+
     req->gcrt = 0;
 #define NVME_CMD_GCT (911)
     if (req->tifa_cmd_flag == NVME_CMD_GCT) {
@@ -1117,6 +1180,7 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 
         if (!in_gc) {
             assert(req->gcrt == 0);
+            ssd->reads_nor++ ;
             return maxlat;
         }
 
@@ -1126,15 +1190,15 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
                     //__LINE__, maxlat, req->gcrt);
         }
 
-		for (i = 0; i < ssd_id_cnt; i++) {
-			if (req->stime < gc_endtime_array[i]) {
-				num_concurrent_gcs++;
-			}
-		}
-		if (num_concurrent_gcs > 1) {
-			//printf("ssd_read finds possible case of %d concurrent gcs ssd %d\n", num_concurrent_gcs, ssd->id);
-		}
-
+		// for (i = 0; i < ssd_id_cnt; i++) {
+		// 	if (req->stime < gc_endtime_array[i]) {
+		// 		num_concurrent_gcs++;
+		// 	}
+		// }
+		// if (num_concurrent_gcs > 1) {
+		// 	//printf("ssd_read finds possible case of %d concurrent gcs ssd %d\n", num_concurrent_gcs, ssd->id);
+		// }
+        ssd->reads_block++;
         return 0;
     } else {
 		int max_gcrt = 0;
@@ -1190,24 +1254,29 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             */
         }
 
-		if (max_gcrt) {
-			//printf("Normal read path: GCRT %d SSD %d\n", max_gcrt, ssd->id);
-		}
-		for (i = 0; i < ssd_id_cnt; i++) {
-			if (req->stime < gc_endtime_array[i]) {
-				num_concurrent_gcs++;
-			}
-		}
+		// if (max_gcrt) {
+		// 	//printf("Normal read path: GCRT %d SSD %d\n", max_gcrt, ssd->id);
+		// }
+		// for (i = 0; i < ssd_id_cnt; i++) {
+		// 	if (req->stime < gc_endtime_array[i]) {
+		// 		num_concurrent_gcs++;
+		// 	}
+		// }
 
-		ssd->total_reads++;
-		if (num_concurrent_gcs) {
-			ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;
-		} else {
-			ssd->num_reads_blocked_by_gc[0]++;
-		}
+        if (max_gcrt > 0){
+            ssd->reads_reblk++;
+        }      
+        ssd->reads_recon++;  
+
+		// ssd->total_reads++;
+		// if (num_concurrent_gcs) {
+		// 	ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;
+		// } else {
+		// 	ssd->num_reads_blocked_by_gc[0]++;
+		// }
 
         if (req->tifa_cmd_flag == 1024 && ssd->sp.enable_gc_sync) {
-            printf("tifa_cmd_flag=1024, gc_sync on\n");
+            // printf("tifa_cmd_flag=1024, gc_sync on\n");
             return 100000;
         }
 

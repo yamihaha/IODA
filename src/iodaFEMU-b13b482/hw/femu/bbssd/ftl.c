@@ -373,7 +373,7 @@ void ssd_init(FemuCtrl *n)
 	ssd->earliest_ssd_lun_avail_time = UINT64_MAX;
 	gc_endtime_array[ssd->id] = 0;
 
-	ssd->total_reads = 0;
+	
     for (int i = 0; i <= SSD_NUM; i++) {
 	    ssd->num_reads_blocked_by_gc[i] = 0;
     }
@@ -386,6 +386,15 @@ void ssd_init(FemuCtrl *n)
     ssd->gc_read_pgs = 0;
     ssd->gc_write_pgs = 0;
     ssd->gc_erase_blks = 0;
+
+    //初始化统计量
+    ssd->total_reads = 0;
+    ssd->total_gcs = 0;
+    ssd->reads_nor = 0; //正常读请求数量
+    ssd->reads_block = 0; //阻塞读请求数量
+    ssd->reads_recon = 0; //重构读请求数量
+    ssd->reads_reblk = 0; //重构被阻塞读请求数量
+
 
     ssd_init_params(spp);
 
@@ -781,6 +790,8 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
         return -1;
     }
 
+    ssd->total_gcs++ ;
+
     ppa.g.blk = victim_line->id;
     ftl_debug("GC-ing line:%d,ipc=%d,victim=%d,full=%d,free=%d\n", ppa.g.blk,
               victim_line->ipc, ssd->lm.victim_line_cnt, ssd->lm.full_line_cnt,
@@ -836,6 +847,17 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         ftl_err("start_lpn=%"PRIu64",tt_pgs=%d\n", start_lpn, ssd->sp.tt_pgs);
     }
 
+    ssd->total_reads++;
+
+    for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
+            if (req->stime < gc_endtime_array[i]) {
+                num_concurrent_gcs++;
+            }
+        }
+    ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
+
+
+
     req->gcrt = 0; //g-gc-remaining time
 #define NVME_CMD_GCT (911)  //g-gc-tolerant 判断是否启用fast-fail机制
     if (req->tifa_cmd_flag == NVME_CMD_GCT) {//g-如果IO被阻塞掉，启动fast-fail过程
@@ -865,8 +887,11 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 
         if (!in_gc) {//g-如果请求定向设备不在gc中，req->gcrt==0，未被填充
             assert(req->gcrt == 0);
+            ssd->reads_nor++ ;
             return maxlat;
         }
+
+        ssd->reads_block++;
 
         return 0;//g-io被阻塞，到此，如果一个读请求被阻塞，只有gcrt>0这个明显标志？
     } else {
@@ -886,6 +911,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 				max_gcrt = lun->gc_endtime - req->stime;
             }
 
+
             struct nand_cmd srd;
             srd.type = USER_IO;
             srd.cmd = NAND_READ;
@@ -894,17 +920,21 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             maxlat = (sublat > maxlat) ? sublat : maxlat;
         }
 
-        for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
-            if (req->stime < gc_endtime_array[i]) {
-                num_concurrent_gcs++;
-            }
-        }
+        if (max_gcrt > 0){
+            ssd->reads_reblk++;
+        }      
+        ssd->reads_recon++;  
+        // for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
+        //     if (req->stime < gc_endtime_array[i]) {
+        //         num_concurrent_gcs++;
+        //     }
+        // }
 
-        ssd->total_reads++;
-        ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
+        // ssd->total_reads++;
+        // ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
 
         if (req->tifa_cmd_flag == 1024 && ssd->sp.enable_gc_sync) {//g-？这里不太清楚
-            printf("tifa_cmd_flag=1024, gc_sync on\n");
+            // printf("tifa_cmd_flag=1024, gc_sync on\n");
             return 100000;
         }
 
@@ -1002,7 +1032,7 @@ static void *ftl_thread(void *arg)
             case NVME_CMD_READ:
                 lat = ssd_read(ssd, req);
                 if (lat > 1e9) {
-                    printf("FEMU: Read latency is > 1s, what's going on!\n");
+                    // printf("FEMU: Read latency is > 1s, what's going on!\n");
                 }
                 break;
             case NVME_CMD_DSM:

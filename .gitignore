@@ -55,3 +55,4 @@ images/ioda.qcow2
 *.log
 
 .vscode/
+images/ioda0.qcow2

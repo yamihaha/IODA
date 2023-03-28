@@ -9,7 +9,6 @@ uint16_t ssd_id_cnt = 0;
 struct ssd *ssd_array[SSD_NUM];
 bool harmonia_override[SSD_NUM];
 pthread_mutex_t harmonia_override_lock;
-
 static void *ftl_thread(void *arg);
 
 //unsigned int pages_read = 0;
@@ -400,6 +399,7 @@ void ssd_init(struct ssd *ssd)
 
     for (int i = 0; i <= SSD_NUM; i++) {
 	    ssd->num_reads_blocked_by_gc[i] = 0;
+        ssd->block_reads_gc[i] = 0;
     }
 
     ssd->nand_utilization_log = 0;
@@ -418,6 +418,8 @@ void ssd_init(struct ssd *ssd)
     ssd->reads_block = 0; //阻塞读请求数量
     ssd->reads_recon = 0; //重构读请求数量
     ssd->reads_reblk = 0; //重构被阻塞读请求数量
+
+    ssd->print_rw_log = 0;
 
     ssd_init_params(spp);
 
@@ -895,6 +897,8 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
         return -1;
     }
 
+    ssd->total_gcs++ ;
+
 
     if (ssd->sp.enable_free_blocks_log) {
         if (!prev_time_s[ssd->id]) {
@@ -1134,6 +1138,11 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     //assert(end_lpn < spp->tt_pgs);
     /* for list of NAND page reads involved in this external request, do: */
 
+    //打印读取请求输出
+    if(ssd->print_rw_log){
+        printf("Read:SSD%d: lpn:%lu~%lu\n",ssd->id,start_lpn,end_lpn);
+    }
+
     ssd->total_reads++;
 
     for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
@@ -1175,7 +1184,15 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         }
 
 		if (in_gc) {
+            ssd->reads_block++;
 			//printf("TIFA read path: GCRT %d SSD %d\n", req->gcrt, ssd->id);
+            int cur_gc=0;
+            for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
+                if (req->stime < gc_endtime_array[i]) {
+                    cur_gc++;
+                }
+            }
+        ssd->block_reads_gc[cur_gc]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
 		}
 
         if (!in_gc) {
@@ -1198,7 +1215,6 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 		// if (num_concurrent_gcs > 1) {
 		// 	//printf("ssd_read finds possible case of %d concurrent gcs ssd %d\n", num_concurrent_gcs, ssd->id);
 		// }
-        ssd->reads_block++;
         return 0;
     } else {
 		int max_gcrt = 0;
@@ -1306,6 +1322,10 @@ uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     }
     //assert(end_lpn < spp->tt_pgs);
     //printf("Coperd,%s,end_lpn=%"PRIu64" (%d),len=%d\n", __func__, end_lpn, spp->tt_pgs, len);
+
+    if(ssd->print_rw_log){
+        printf("Write: SSD%d: lpn:%lu~%lu\n",ssd->id,start_lpn,end_lpn);
+    }
 
     while (should_gc_high(ssd)) {
         /* perform GC here until !should_gc(ssd) */

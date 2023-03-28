@@ -1,11 +1,5 @@
 #!/bin/bash
 
-usage() {
-    echo ""
-    echo "Usage: $0 [ioda|nonioda]"
-    echo ""
-    exit
-}
 
 IODA_IMGDIR="./images/"
 IODA_KERNEL="src/iodaLinux/arch/x86/boot/bzImage"

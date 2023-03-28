@@ -1,0 +1,167 @@
+diff --git a/src/iodaFEMU-b13b482/hw/femu/bbssd/bb.c b/src/iodaFEMU-b13b482/hw/femu/bbssd/bb.c
+index 15b3b095f..54c8389b3 100644
+--- a/src/iodaFEMU-b13b482/hw/femu/bbssd/bb.c
++++ b/src/iodaFEMU-b13b482/hw/femu/bbssd/bb.c
+@@ -159,6 +159,12 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
+         ssd->num_reads_blocked_by_gc[4] = 0;
+         break;
+ 
++    case FEMU_NAND_UTILIZATION_LOG:
++      ssd->nand_utilization_log = 1 - ssd->nand_utilization_log;
++      femu_log("%s, FEMU_NAND_UTILIZATION_LOG TOGGLE, current value: %d\n",
++               n->devname, ssd->nand_utilization_log);
++      break;
++
+     default:
+         printf("FEMU:%s,Not implemented flip cmd (%lu)\n", n->devname, cdw10);
+     }
+diff --git a/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.c b/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.c
+index 810dc6647..1f54a8031 100644
+--- a/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.c
++++ b/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.c
+@@ -409,6 +409,15 @@ void ssd_init(FemuCtrl *n)
+ 	ssd->num_reads_blocked_by_gc[3] = 0;
+ 	ssd->num_reads_blocked_by_gc[4] = 0;
+ 
++    ssd->nand_utilization_log = 0;
++    ssd->nand_end_time = 0;
++    ssd->nand_read_pgs = 0;
++    ssd->nand_write_pgs = 0;
++    ssd->nand_erase_blks = 0;
++    ssd->gc_read_pgs = 0;
++    ssd->gc_write_pgs = 0;
++    ssd->gc_erase_blks = 0;
++
+     ssd_init_params(spp);
+ 
+     /* initialize ssd internal layout architecture */
+@@ -513,41 +522,14 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
+                      lun->next_lun_avail_time;
+         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
+         lat = lun->next_lun_avail_time - cmd_stime;
+-#if 0
+-        lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
+-
+-        /* read: then data transfer through channel */
+-        chnl_stime = (ch->next_ch_avail_time < lun->next_lun_avail_time) ? \
+-            lun->next_lun_avail_time : ch->next_ch_avail_time;
+-        ch->next_ch_avail_time = chnl_stime + spp->ch_xfer_lat;
+-
+-        lat = ch->next_ch_avail_time - cmd_stime;
+-#endif
+         break;
+ 
+     case NAND_WRITE:
+         /* write: transfer data through channel first */
+         nand_stime = (lun->next_lun_avail_time < cmd_stime) ? cmd_stime : \
+                      lun->next_lun_avail_time;
+-        if (ncmd->type == USER_IO) {
+-            lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+-        } else {
+-            lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+-        }
+-        lat = lun->next_lun_avail_time - cmd_stime;
+-
+-#if 0
+-        chnl_stime = (ch->next_ch_avail_time < cmd_stime) ? cmd_stime : \
+-                     ch->next_ch_avail_time;
+-        ch->next_ch_avail_time = chnl_stime + spp->ch_xfer_lat;
+-
+-        /* write: then do NAND program */
+-        nand_stime = (lun->next_lun_avail_time < ch->next_ch_avail_time) ? \
+-            ch->next_ch_avail_time : lun->next_lun_avail_time;
+         lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+-
+         lat = lun->next_lun_avail_time - cmd_stime;
+-#endif
+         break;
+ 
+     case NAND_ERASE:
+@@ -555,7 +537,6 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
+         nand_stime = (lun->next_lun_avail_time < cmd_stime) ? cmd_stime : \
+                      lun->next_lun_avail_time;
+         lun->next_lun_avail_time = nand_stime + spp->blk_er_lat;
+-
+         lat = lun->next_lun_avail_time - cmd_stime;
+         break;
+ 
+@@ -570,6 +551,40 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
+ 		ssd->earliest_ssd_lun_avail_time = lun->next_lun_avail_time;
+ 	}
+ 
++    if (ssd->nand_utilization_log) {
++        if (nand_stime > ssd->nand_end_time) {
++            ftl_log("%s ~%lus, r%lu w%lu e%lu %lu%%, [r%lu w%lu e%lu %lu%%]\n",
++                    ssd->ssdname, ssd->nand_end_time / 1000000000,
++                    ssd->nand_read_pgs, ssd->nand_write_pgs, ssd->nand_erase_blks,
++                    100 *
++                        (ssd->nand_read_pgs * (uint64_t)spp->pg_rd_lat +
++                            ssd->nand_write_pgs * (uint64_t)spp->pg_wr_lat +
++                            ssd->nand_erase_blks * (uint64_t)spp->blk_er_lat) /
++                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns),
++                    ssd->gc_read_pgs, ssd->gc_write_pgs, ssd->gc_erase_blks,
++                    100 *
++                        (ssd->gc_read_pgs * (uint64_t)spp->pg_rd_lat +
++                            ssd->gc_write_pgs * (uint64_t)spp->pg_wr_lat +
++                            ssd->gc_erase_blks * (uint64_t)spp->blk_er_lat) /
++                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns));
++            ssd->nand_end_time =
++                nand_stime - nand_stime % NAND_DIFF_TIME + NAND_DIFF_TIME;
++            ssd->gc_read_pgs = 0;
++            ssd->gc_write_pgs = 0;
++            ssd->gc_erase_blks = 0;
++            ssd->nand_read_pgs = 0;
++            ssd->nand_write_pgs = 0;
++            ssd->nand_erase_blks = 0;
++        }
++        if (ncmd->type == GC_IO) {
++            ssd->gc_read_pgs += (c == NAND_READ);
++            ssd->gc_write_pgs += (c == NAND_WRITE);
++            ssd->gc_erase_blks += (c == NAND_ERASE);
++        }
++        ssd->nand_read_pgs += (c == NAND_READ);
++        ssd->nand_write_pgs += (c == NAND_WRITE);
++        ssd->nand_erase_blks += (c == NAND_ERASE);
++    }
+     return lat;
+ }
+ 
+diff --git a/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.h b/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.h
+index f11d8a1db..cd8ebb131 100644
+--- a/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.h
++++ b/src/iodaFEMU-b13b482/hw/femu/bbssd/ftl.h
+@@ -64,6 +64,8 @@ enum {
+     FEMU_DISABLE_HARMONIA = 22,
+ 
+ 	FEMU_PRINT_AND_RESET_COUNTERS = 23,
++
++	FEMU_NAND_UTILIZATION_LOG = 24,
+ };
+ 
+ 
+@@ -240,6 +242,15 @@ struct ssd {
+     int total_reads;
+     int num_reads_blocked_by_gc[5];
+ 
++    uint32_t nand_utilization_log;
++    uint64_t nand_end_time;
++    uint64_t nand_read_pgs;
++    uint64_t nand_write_pgs;
++    uint64_t nand_erase_blks;
++    uint64_t gc_read_pgs;
++    uint64_t gc_write_pgs;
++    uint64_t gc_erase_blks;
++
+     /* lockless ring for communication with NVMe IO thread */
+     struct rte_ring **to_ftl;
+     struct rte_ring **to_poller;
+@@ -247,6 +258,9 @@ struct ssd {
+     QemuThread ftl_thread;
+ };
+ 
++// 1s
++#define NAND_DIFF_TIME  (1000000000)
++
+ extern uint16_t ssd_id_cnt;
+ 
+ void ssd_init(FemuCtrl *n);

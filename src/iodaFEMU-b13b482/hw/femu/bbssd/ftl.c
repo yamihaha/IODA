@@ -849,7 +849,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 
     ssd->total_reads++;
 
-    for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
+    for (i = 0; i < SSD_NUM; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
             if (req->stime < gc_endtime_array[i]) {
                 num_concurrent_gcs++;
             }

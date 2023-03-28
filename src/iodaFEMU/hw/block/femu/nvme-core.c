@@ -891,7 +891,16 @@ static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
         }
         printf("\n");
         for (int i = 0; i <= SSD_NUM; i++) {
-            printf(" %dGC %.4f, ", i, (float)n->ssd.num_reads_blocked_by_gc[i] * 100 / n->ssd.total_reads);
+            printf(" %dGC %.4f%%, ", i, (float)n->ssd.num_reads_blocked_by_gc[i] * 100 / n->ssd.total_reads);
+        }
+
+        printf("\n Reads-block-situation: \n");
+        for (int i = 0; i <= SSD_NUM; i++) {
+            printf(" %dGC %d,", i, n->ssd.block_reads_gc[i]);
+        }
+        printf("\n");
+        for (int i = 0; i <= SSD_NUM; i++) {
+            printf(" %dGC %.4f%%, ", i, (float)n->ssd.block_reads_gc[i] * 100 / n->ssd.total_reads);
         }
         printf("\n");
 
@@ -902,6 +911,9 @@ static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
         for (int i = 0; i <= SSD_NUM; i++) {
             n->ssd.num_reads_blocked_by_gc[i] = 0;
         }
+        for (int i = 0; i <= SSD_NUM; i++) {
+            n->ssd.block_reads_gc[i] = 0;
+        }
         //重置gcs，reads for block nor recon rebl
         n->ssd.total_reads = 0;
         n->ssd.total_gcs = 0;
@@ -909,6 +921,10 @@ static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
         n->ssd.reads_nor =0;
         n->ssd.reads_recon =0;
         n->ssd.reads_reblk =0;
+
+        n->ssd.print_rw_log = 1 - n->ssd.print_rw_log;
+        printf("%s, FEMU_RW_PRINTLOG TOGGLE, current value: %d\n",
+               n->devname, n->ssd.print_rw_log);
 
         break;
 
@@ -1034,4 +1050,3 @@ void nvme_process_sq_admin(void *opaque)
         nvme_isr_notify_admin(cq);
     }
 }
-

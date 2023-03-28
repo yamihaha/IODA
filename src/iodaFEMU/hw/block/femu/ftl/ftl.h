@@ -194,7 +194,9 @@ struct ssd {
 
 	// For recording # FEMU level reads blocked by GC
 	int total_reads;
-	int num_reads_blocked_by_gc[SSD_NUM];
+	int num_reads_blocked_by_gc[SSD_NUM + 1];
+
+    int block_reads_gc[SSD_NUM + 1 ];
 
     //bindwidth utlization statistics
     uint32_t nand_utilization_log;
@@ -212,6 +214,9 @@ struct ssd {
     int reads_block; //阻塞读请求数量
     int reads_recon; //重构读请求数量
     int reads_reblk; //重构被阻塞读请求数量
+
+    //打印读取和写入请求输出
+    uint32_t print_rw_log;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring *to_ftl;

@@ -19,7 +19,7 @@ sudo ${IODA_FEMU} \
     -m 16G \
     -enable-kvm \
     -boot menu=on \
-    -drive file=${IODA_IMGDIR}/ioda0.qcow2,if=virtio,cache=none,aio=native,format=qcow2 \
+    -drive file=${IODA_IMGDIR}/ioda.qcow2,if=virtio,cache=none,aio=native,format=qcow2 \
     -device femu,devsz_mb=12288,femu_mode=1 \
     -device femu,devsz_mb=12288,femu_mode=1 \
     -device femu,devsz_mb=12288,femu_mode=1 \

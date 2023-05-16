@@ -419,6 +419,10 @@ void ssd_init(struct ssd *ssd)
     ssd->reads_recon = 0; //重构读请求数量
     ssd->reads_reblk = 0; //重构被阻塞读请求数量
 
+    ssd->total_count = 0;
+    ssd->ioda_count = 0;
+
+
     ssd->print_rw_log = 0;
 
     ssd_init_params(spp);
@@ -1154,9 +1158,11 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 
     req->gcrt = 0;
 #define NVME_CMD_GCT (911)
+    ssd->total_count++;
     if (req->tifa_cmd_flag == NVME_CMD_GCT) {
         /* fastfail IO path */
         for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+            ssd->ioda_count++;
             ppa = get_maptbl_ent(ssd, lpn);
             if (!mapped_ppa(&ppa) || !valid_ppa(ssd, &ppa)) {
                 //printf("%s,lpn(%" PRId64 ") not mapped to valid ppa\n", ssd->ssdname, lpn);

@@ -215,6 +215,10 @@ struct ssd {
     int reads_recon; //重构读请求数量
     int reads_reblk; //重构被阻塞读请求数量
 
+    //统计进ioda分支次数
+    int total_count;//进入ssd_read的总次数
+    int ioda_count; //进入ioda读请求处理的次数
+
     //打印读取和写入请求输出
     uint32_t print_rw_log;
 

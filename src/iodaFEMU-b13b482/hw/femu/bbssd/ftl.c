@@ -395,6 +395,9 @@ void ssd_init(FemuCtrl *n)
     ssd->reads_recon = 0; //重构读请求数量
     ssd->reads_reblk = 0; //重构被阻塞读请求数量
 
+    ssd->total_count = 0;
+    ssd->ioda_count = 0;
+
 
     ssd_init_params(spp);
 

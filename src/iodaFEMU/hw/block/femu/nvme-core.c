@@ -911,6 +911,9 @@ static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
 
         printf("total_count:%d ,  ioda_count:%d\n", n->ssd.total_count,n->ssd.ioda_count );   
 
+        printf("1page_count:%d ,  2page_count:%d\n", n->ssd.page_count_1,n->ssd.page_count_2 );
+
+
         //清除数据
         for (int i = 0; i <= SSD_NUM; i++) {
             n->ssd.num_reads_blocked_by_gc[i] = 0;
@@ -928,6 +931,10 @@ static void femu_flip_cmd(FemuCtrl *n, NvmeCmd *cmd)
 
         n->ssd.total_count=0;
         n->ssd.ioda_count=0;
+
+        //重置page_count1和2
+        n->ssd.page_count_1=0;
+        n->ssd.page_count_2=0;
 
         n->ssd.print_rw_log = 0;
         printf("%s, FEMU_RW_PRINTLOG TOGGLE, current value: %d\n",

@@ -422,6 +422,11 @@ void ssd_init(struct ssd *ssd)
     ssd->total_count = 0;
     ssd->ioda_count = 0;
 
+    //初始化新添加的变量page_count_1和2
+    ssd->page_count_1 = 0;  
+    ssd->page_count_2 = 0;
+
+
 
     ssd->print_rw_log = 0;
 
@@ -1155,6 +1160,13 @@ uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             }
         }
     ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
+
+    //page数量为1和2的读请求统计到变量page_count_1和2中
+    if (end_lpn-start_lpn == 1) {
+        ssd->page_count_1++;
+    } else if (end_lpn-start_lpn == 2) {
+        ssd->page_count_2++;
+    }
 
     req->gcrt = 0;
 #define NVME_CMD_GCT (911)

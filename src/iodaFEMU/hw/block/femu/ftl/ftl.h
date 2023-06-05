@@ -219,6 +219,11 @@ struct ssd {
     int total_count;//进入ssd_read的总次数
     int ioda_count; //进入ioda读请求处理的次数
 
+    //统计请求页大小为1和2的读请求次数
+    int page_count_1;
+    int page_count_2;
+
+
     //打印读取和写入请求输出
     uint32_t print_rw_log;
 

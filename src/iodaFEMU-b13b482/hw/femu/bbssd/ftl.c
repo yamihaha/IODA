@@ -234,7 +234,7 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->pgs_per_blk = 256;
     spp->blks_per_pl = 256; /* 16GB */
     spp->pls_per_lun = 1;
-    spp->luns_per_ch = 8;
+    spp->luns_per_ch = 10;   //g-20g(16+4)
     spp->nchs = 8;
 
     spp->pg_rd_lat = NAND_READ_LATENCY;

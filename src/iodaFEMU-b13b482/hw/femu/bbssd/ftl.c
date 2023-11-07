@@ -2,10 +2,6 @@
 
 //#define FEMU_DEBUG_FTL
 
-uint16_t ssd_id_cnt = 0;//g-盘数量
-struct ssd *ssd_array[SSD_NUM];//g-包含了 SSD_NUM 个ssd的结构体数组
-uint64_t gc_endtime_array[SSD_NUM];
-
 static void *ftl_thread(void *arg);
 
 static inline bool should_gc(struct ssd *ssd)
@@ -227,6 +223,17 @@ static struct ppa get_new_page(struct ssd *ssd)
     return ppa;
 }
 
+static void check_params(struct ssdparams *spp)
+{
+    /*
+     * we are using a general write pointer increment method now, no need to
+     * force luns_per_ch and nchs to be power of 2
+     */
+
+    //ftl_assert(is_power_of_2(spp->luns_per_ch));
+    //ftl_assert(is_power_of_2(spp->nchs));
+}
+
 static void ssd_init_params(struct ssdparams *spp)
 {
     spp->secsz = 512;
@@ -234,7 +241,7 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->pgs_per_blk = 256;
     spp->blks_per_pl = 256; /* 16GB */
     spp->pls_per_lun = 1;
-    spp->luns_per_ch = 10;   //g-20g(16+4)
+    spp->luns_per_ch = 8;
     spp->nchs = 8;
 
     spp->pg_rd_lat = NAND_READ_LATENCY;
@@ -269,18 +276,14 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->secs_per_line = spp->pgs_per_line * spp->secs_per_pg;
     spp->tt_lines = spp->blks_per_lun; /* TODO: to fix under multiplanes */
 
-    spp->gc_thres_pcent = 0.90;
+    spp->gc_thres_pcent = 0.75;
     spp->gc_thres_lines = (int)((1 - spp->gc_thres_pcent) * spp->tt_lines);
     spp->gc_thres_pcent_high = 0.95;
     spp->gc_thres_lines_high = (int)((1 - spp->gc_thres_pcent_high) * spp->tt_lines);
     spp->enable_gc_delay = true;
-    spp->enable_gc_sync = false;
-    spp->gc_sync_window = 100;
 
-    printf("spp->pgs_per_line: %d\n", spp->pgs_per_line);
-    printf("spp->tt_lines: %d\n", spp->tt_lines);
-    printf("spp->tt_blks: %d\n", spp->tt_blks);
-    printf("spp->gc_thres_lines: %d\n", spp->gc_thres_lines);
+
+    check_params(spp);
 }
 
 static void ssd_init_nand_page(struct nand_page *pg, struct ssdparams *spp)
@@ -363,41 +366,6 @@ void ssd_init(FemuCtrl *n)
     struct ssdparams *spp = &ssd->sp;
 
     ftl_assert(ssd);
-
-    /* assign ssd id for GC synchronization */
-    ssd->id = ssd_id_cnt;
-	ssd_array[ssd->id] = ssd;
-    ssd_id_cnt++;
-    ftl_log("GCSYNC SSD initialized with id %d\n", ssd->id);
-	ssd->next_ssd_avail_time = 0;
-	ssd->earliest_ssd_lun_avail_time = UINT64_MAX;
-	gc_endtime_array[ssd->id] = 0;
-
-	
-    for (int i = 0; i <= SSD_NUM; i++) {
-	    ssd->num_reads_blocked_by_gc[i] = 0;
-    }
-
-    ssd->nand_utilization_log = 0;
-    ssd->nand_end_time = 0;
-    ssd->nand_read_pgs = 0;
-    ssd->nand_write_pgs = 0;
-    ssd->nand_erase_blks = 0;
-    ssd->gc_read_pgs = 0;
-    ssd->gc_write_pgs = 0;
-    ssd->gc_erase_blks = 0;
-
-    //初始化统计量
-    ssd->total_reads = 0;
-    ssd->total_gcs = 0;
-    ssd->reads_nor = 0; //正常读请求数量
-    ssd->reads_block = 0; //阻塞读请求数量
-    ssd->reads_recon = 0; //重构读请求数量
-    ssd->reads_reblk = 0; //重构被阻塞读请求数量
-
-    ssd->total_count = 0;
-    ssd->ioda_count = 0;
-
 
     ssd_init_params(spp);
 
@@ -503,14 +471,41 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
         lat = lun->next_lun_avail_time - cmd_stime;
+#if 0
+        lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
+
+        /* read: then data transfer through channel */
+        chnl_stime = (ch->next_ch_avail_time < lun->next_lun_avail_time) ? \
+            lun->next_lun_avail_time : ch->next_ch_avail_time;
+        ch->next_ch_avail_time = chnl_stime + spp->ch_xfer_lat;
+
+        lat = ch->next_ch_avail_time - cmd_stime;
+#endif
         break;
 
     case NAND_WRITE:
         /* write: transfer data through channel first */
         nand_stime = (lun->next_lun_avail_time < cmd_stime) ? cmd_stime : \
                      lun->next_lun_avail_time;
-        lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+        if (ncmd->type == USER_IO) {
+            lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+        } else {
+            lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+        }
         lat = lun->next_lun_avail_time - cmd_stime;
+
+#if 0
+        chnl_stime = (ch->next_ch_avail_time < cmd_stime) ? cmd_stime : \
+                     ch->next_ch_avail_time;
+        ch->next_ch_avail_time = chnl_stime + spp->ch_xfer_lat;
+
+        /* write: then do NAND program */
+        nand_stime = (lun->next_lun_avail_time < ch->next_ch_avail_time) ? \
+            ch->next_ch_avail_time : lun->next_lun_avail_time;
+        lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
+
+        lat = lun->next_lun_avail_time - cmd_stime;
+#endif
         break;
 
     case NAND_ERASE:
@@ -518,6 +513,7 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
         nand_stime = (lun->next_lun_avail_time < cmd_stime) ? cmd_stime : \
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->blk_er_lat;
+
         lat = lun->next_lun_avail_time - cmd_stime;
         break;
 
@@ -525,47 +521,6 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
         ftl_err("Unsupported NAND command: 0x%x\n", c);
     }
 
-	if (lun->next_lun_avail_time > ssd->next_ssd_avail_time) {
-		ssd->next_ssd_avail_time = lun->next_lun_avail_time;
-	}
-	if (lun->next_lun_avail_time < ssd->earliest_ssd_lun_avail_time) {
-		ssd->earliest_ssd_lun_avail_time = lun->next_lun_avail_time;
-	}
-
-    if (ssd->nand_utilization_log) {
-        if (nand_stime > ssd->nand_end_time) {
-            ftl_log("%s ~%lus, r%lu w%lu e%lu %lu%%, [r%lu w%lu e%lu %lu%%]\n",
-                    ssd->ssdname, ssd->nand_end_time / 1000000000,
-                    ssd->nand_read_pgs, ssd->nand_write_pgs, ssd->nand_erase_blks,
-                    100 *
-                        (ssd->nand_read_pgs * (uint64_t)spp->pg_rd_lat +
-                            ssd->nand_write_pgs * (uint64_t)spp->pg_wr_lat +
-                            ssd->nand_erase_blks * (uint64_t)spp->blk_er_lat) /
-                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns),
-                    ssd->gc_read_pgs, ssd->gc_write_pgs, ssd->gc_erase_blks,
-                    100 *
-                        (ssd->gc_read_pgs * (uint64_t)spp->pg_rd_lat +
-                            ssd->gc_write_pgs * (uint64_t)spp->pg_wr_lat +
-                            ssd->gc_erase_blks * (uint64_t)spp->blk_er_lat) /
-                        ((uint64_t)NAND_DIFF_TIME * (uint64_t)spp->tt_luns));
-            ssd->nand_end_time =
-                nand_stime - nand_stime % NAND_DIFF_TIME + NAND_DIFF_TIME;
-            ssd->gc_read_pgs = 0;
-            ssd->gc_write_pgs = 0;
-            ssd->gc_erase_blks = 0;
-            ssd->nand_read_pgs = 0;
-            ssd->nand_write_pgs = 0;
-            ssd->nand_erase_blks = 0;
-        }
-        if (ncmd->type == GC_IO) {
-            ssd->gc_read_pgs += (c == NAND_READ);
-            ssd->gc_write_pgs += (c == NAND_WRITE);
-            ssd->gc_erase_blks += (c == NAND_ERASE);
-        }
-        ssd->nand_read_pgs += (c == NAND_READ);
-        ssd->nand_write_pgs += (c == NAND_WRITE);
-        ssd->nand_erase_blks += (c == NAND_ERASE);
-    }
     return lat;
 }
 
@@ -720,7 +675,7 @@ static struct line *select_victim_line(struct ssd *ssd, bool force)
         return NULL;
     }
 
-    if (!force && victim_line->ipc < ssd->sp.pgs_per_line / 4) {
+    if (!force && victim_line->ipc < ssd->sp.pgs_per_line / 8) {
         return NULL;
     }
 
@@ -732,9 +687,8 @@ static struct line *select_victim_line(struct ssd *ssd, bool force)
     return victim_line;
 }
 
-/* here ppa identifies the block we want to clean 
-    Returns the number of valid pages we needed to copy within the block*/
-static int clean_one_block(struct ssd *ssd, struct ppa *ppa)
+/* here ppa identifies the block we want to clean */
+static void clean_one_block(struct ssd *ssd, struct ppa *ppa)
 {
     struct ssdparams *spp = &ssd->sp;
     struct nand_page *pg_iter = NULL;
@@ -754,8 +708,6 @@ static int clean_one_block(struct ssd *ssd, struct ppa *ppa)
     }
 
     ftl_assert(get_blk(ssd, ppa)->vpc == cnt);
-
-    return cnt;
 }
 
 static void mark_line_free(struct ssd *ssd, struct ppa *ppa)
@@ -769,31 +721,18 @@ static void mark_line_free(struct ssd *ssd, struct ppa *ppa)
     lm->free_line_cnt++;
 }
 
-static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
+static int do_gc(struct ssd *ssd, bool force)
 {
     struct line *victim_line = NULL;
     struct ssdparams *spp = &ssd->sp;
     struct nand_lun *lunp;
     struct ppa ppa;
     int ch, lun;
-    uint64_t now = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
-    int now_ms = now / 1e6;
-    int now_s = now / 1e9;
-
-    if (ssd->sp.enable_gc_sync && !force) {//如果开启了gc同步，且盘空闲line未达到高阈值
-        // Synchronizing Time Window logic
-        int time_window_ms = ssd->sp.gc_sync_window;
-        if (ssd->id != (now_ms/time_window_ms) % ssd_id_cnt) {
-            return 0;
-        }
-    }
 
     victim_line = select_victim_line(ssd, force);
     if (!victim_line) {
         return -1;
     }
-
-    ssd->total_gcs++ ;
 
     ppa.g.blk = victim_line->id;
     ftl_debug("GC-ing line:%d,ipc=%d,victim=%d,full=%d,free=%d\n", ppa.g.blk,
@@ -807,7 +746,7 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
             ppa.g.lun = lun;
             ppa.g.pl = 0;
             lunp = get_lun(ssd, &ppa);
-            ssd->num_valid_pages_copied_s += clean_one_block(ssd, &ppa);
+            clean_one_block(ssd, &ppa);
             mark_block_free(ssd, &ppa);
 
             if (spp->enable_gc_delay) {
@@ -819,9 +758,6 @@ static int do_gc(struct ssd *ssd, bool force, NvmeRequest *req)
             }
 
             lunp->gc_endtime = lunp->next_lun_avail_time;
-			if (lunp->gc_endtime > gc_endtime_array[ssd->id]) {
-				gc_endtime_array[ssd->id] = lunp->gc_endtime;
-			}
         }
     }
 
@@ -841,108 +777,30 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     uint64_t end_lpn = (lba + nsecs - 1) / spp->secs_per_pg;
     uint64_t lpn;
     uint64_t sublat, maxlat = 0;
-    struct nand_lun *lun;
-    bool in_gc = false; /* indicate whether any subIO met GC */
-	int i;
-	int num_concurrent_gcs = 0;
 
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("start_lpn=%"PRIu64",tt_pgs=%d\n", start_lpn, ssd->sp.tt_pgs);
     }
 
-    ssd->total_reads++;
-
-    for (i = 0; i < SSD_NUM; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
-            if (req->stime < gc_endtime_array[i]) {
-                num_concurrent_gcs++;
-            }
-        }
-    ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
-
-
-
-    req->gcrt = 0; //g-gc-remaining time
-#define NVME_CMD_GCT (911)  //g-gc-tolerant 判断是否启用fast-fail机制
-    if (req->tifa_cmd_flag == NVME_CMD_GCT) {//g-如果IO被阻塞掉，启动fast-fail过程
-        /* fastfail IO path */
-        for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
-            ppa = get_maptbl_ent(ssd, lpn);
-            if (!mapped_ppa(&ppa) || !valid_ppa(ssd, &ppa)) {
-                continue;
-            }
-
-            lun = get_lun(ssd, &ppa);
-            if (req->stime < lun->gc_endtime) {
-                in_gc = true;
-                int tgcrt = lun->gc_endtime - req->stime;
-                if (req->gcrt < tgcrt) {
-                    req->gcrt = tgcrt;
-                }
-            } else {//g-读请求目标lun未执行gc操作，req->stime >= lun->gc_endtime
-                /* NoGC under fastfail path */
-                struct nand_cmd srd;
-                srd.cmd = NAND_READ;
-                srd.stime = req->stime;
-                sublat = ssd_advance_status(ssd, &ppa, &srd);
-                maxlat = (sublat > maxlat) ? sublat : maxlat;
-            }
+    /* normal IO read path */
+    for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+        ppa = get_maptbl_ent(ssd, lpn);
+        if (!mapped_ppa(&ppa) || !valid_ppa(ssd, &ppa)) {
+            //printf("%s,lpn(%" PRId64 ") not mapped to valid ppa\n", ssd->ssdname, lpn);
+            //printf("Invalid ppa,ch:%d,lun:%d,blk:%d,pl:%d,pg:%d,sec:%d\n",
+            //ppa.g.ch, ppa.g.lun, ppa.g.blk, ppa.g.pl, ppa.g.pg, ppa.g.sec);
+            continue;
         }
 
-        if (!in_gc) {//g-如果请求定向设备不在gc中，req->gcrt==0，未被填充
-            assert(req->gcrt == 0);
-            ssd->reads_nor++ ;
-            return maxlat;
-        }
-
-        ssd->reads_block++;
-
-        return 0;//g-io被阻塞，到此，如果一个读请求被阻塞，只有gcrt>0这个明显标志？
-    } else {
-		int max_gcrt = 0;
-        /* normal IO read path */
-        for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
-            ppa = get_maptbl_ent(ssd, lpn);
-            if (!mapped_ppa(&ppa) || !valid_ppa(ssd, &ppa)) {
-                //printf("%s,lpn(%" PRId64 ") not mapped to valid ppa\n", ssd->ssdname, lpn);
-                //printf("Invalid ppa,ch:%d,lun:%d,blk:%d,pl:%d,pg:%d,sec:%d\n",
-                //ppa.g.ch, ppa.g.lun, ppa.g.blk, ppa.g.pl, ppa.g.pg, ppa.g.sec);
-                continue;
-            }
-
-            lun = get_lun(ssd, &ppa);//g-不执行fastfail机制的话，依然会统计被GC阻塞的io数量，但是不会更新req->gcrt
-            if (req->stime < lun->gc_endtime && max_gcrt < lun->gc_endtime - req->stime) {
-				max_gcrt = lun->gc_endtime - req->stime;
-            }
-
-
-            struct nand_cmd srd;
-            srd.type = USER_IO;
-            srd.cmd = NAND_READ;
-            srd.stime = req->stime;
-            sublat = ssd_advance_status(ssd, &ppa, &srd);
-            maxlat = (sublat > maxlat) ? sublat : maxlat;
-        }
-
-        if (max_gcrt > 0){
-            ssd->reads_reblk++;
-        }      
-        ssd->reads_recon++;  
-        // for (i = 0; i < ssd_id_cnt; i++) {//g-g-统计读请求被gc阻塞的时候同时进行GC的盘数量？
-        //     if (req->stime < gc_endtime_array[i]) {
-        //         num_concurrent_gcs++;
-        //     }
-        // }
-
-        // ssd->total_reads++;
-        // ssd->num_reads_blocked_by_gc[num_concurrent_gcs]++;//g-统计读请求被gc阻塞的时候同时进行GC的盘数量为1，2，3，4的次数？
-
-        if (req->tifa_cmd_flag == 1024 && ssd->sp.enable_gc_sync) {//g-？这里不太清楚
-            // printf("tifa_cmd_flag=1024, gc_sync on\n");
-            return 100000;
-        }
-
-        return maxlat;
+        struct nand_cmd srd;
+        srd.type = USER_IO;
+        srd.cmd = NAND_READ;
+        srd.stime = req->stime;
+        sublat = ssd_advance_status(ssd, &ppa, &srd);
+        maxlat = (sublat > maxlat) ? sublat : maxlat;
     }
+
+    return maxlat;
 }
 
 static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
@@ -963,7 +821,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 
     while (should_gc_high(ssd)) {
         /* perform GC here until !should_gc(ssd) */
-        r = do_gc(ssd, true, NULL);
+        r = do_gc(ssd, true);
         if (r == -1)
             break;
     }
@@ -1034,9 +892,6 @@ static void *ftl_thread(void *arg)
                 break;
             case NVME_CMD_READ:
                 lat = ssd_read(ssd, req);
-                if (lat > 1e9) {
-                    // printf("FEMU: Read latency is > 1s, what's going on!\n");
-                }
                 break;
             case NVME_CMD_DSM:
                 lat = 0;
@@ -1056,7 +911,7 @@ static void *ftl_thread(void *arg)
 
             /* clean one line if needed (in the background) */
             if (should_gc(ssd)) {
-                do_gc(ssd, false, req);
+                do_gc(ssd, false);
             }
         }
     }

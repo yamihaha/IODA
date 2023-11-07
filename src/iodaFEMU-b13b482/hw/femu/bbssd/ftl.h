@@ -12,18 +12,9 @@ enum {
     NAND_WRITE = 1,
     NAND_ERASE = 2,
 
-    //ioda origin config
     NAND_READ_LATENCY = 40000,
     NAND_PROG_LATENCY = 200000,
     NAND_ERASE_LATENCY = 2000000,
-    // TLC
-    // NAND_READ_LATENCY = 66000,
-    // NAND_PROG_LATENCY = 730000,
-    // NAND_ERASE_LATENCY = 4800000,
-    // QLC
-    // NAND_READ_LATENCY = 140000,
-    // NAND_PROG_LATENCY = 3102000,
-    // NAND_ERASE_LATENCY = 3500000,
 };
 
 enum {
@@ -51,21 +42,6 @@ enum {
     FEMU_RESET_ACCT = 5,
     FEMU_ENABLE_LOG = 6,
     FEMU_DISABLE_LOG = 7,
-
-    FEMU_SYNC_GC = 8,
-    FEMU_UNSYNC_GC = 9,
-
-    FEMU_WINDOW_1S = 12,
-    FEMU_WINDOW_100MS = 13,
-    FEMU_WINDOW_2S = 14,
-    FEMU_WINDOW_10MS = 15,
-    FEMU_WINDOW_40MS = 16,
-    FEMU_WINDOW_200MS = 17,
-    FEMU_WINDOW_400MS = 18,
-
-	FEMU_PRINT_AND_RESET_COUNTERS = 23,
-
-	FEMU_NAND_UTILIZATION_LOG = 24,
 };
 
 
@@ -152,8 +128,6 @@ struct ssdparams {
     double gc_thres_pcent_high;
     int gc_thres_lines_high;
     bool enable_gc_delay;
-    bool enable_gc_sync;
-    int gc_sync_window;
 
     /* below are all calculated values */
     int secs_per_blk; /* # of sectors per block */
@@ -220,7 +194,6 @@ struct nand_cmd {
     int64_t stime; /* Coperd: request arrival time */
 };
 
-#define SSD_NUM (4)
 struct ssd {
     char *ssdname;
     struct ssdparams sp;
@@ -229,40 +202,6 @@ struct ssd {
     uint64_t *rmap;     /* reverse mapptbl, assume it's stored in OOB */
     struct write_pointer wp;
     struct line_mgmt lm;
-    uint16_t id; /* unique id for synchronization */
-    int num_gc_in_s;
-    int num_valid_pages_copied_s;
-    uint64_t next_ssd_avail_time;
-    uint64_t earliest_ssd_lun_avail_time;
-
-    // For recording # FEMU level reads blocked by GC
-    int total_reads;
-    int num_reads_blocked_by_gc[SSD_NUM + 1];
-
-    uint32_t nand_utilization_log;
-    uint64_t nand_end_time;
-    uint64_t nand_read_pgs;
-    uint64_t nand_write_pgs;
-    uint64_t nand_erase_blks;
-    uint64_t gc_read_pgs;
-    uint64_t gc_write_pgs;
-    uint64_t gc_erase_blks;
-
-
-
-    //增加读请求统计量
-    int total_gcs; //总GC次数
-    int reads_nor; //正常读请求数量
-    int reads_block; //阻塞读请求数量
-    int reads_recon; //重构读请求数量
-    int reads_reblk; //重构被阻塞读请求数量
-
-    //统计进ioda分支次数
-    int total_count;//进入ssd_read的总次数
-    int ioda_count; //进入ioda读请求处理的次数
-
-
-
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
@@ -270,11 +209,6 @@ struct ssd {
     bool *dataplane_started_ptr;
     QemuThread ftl_thread;
 };
-
-// 5s
-#define NAND_DIFF_TIME  (5000000000)
-
-extern uint16_t ssd_id_cnt;
 
 void ssd_init(FemuCtrl *n);
 

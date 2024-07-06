@@ -51,7 +51,7 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
     while (!(nvme_sq_empty(sq))) {
         if (sq->phys_contig) {
             addr = sq->dma_addr + sq->head * n->sqe_size;
-            nvme_copy_cmd(&cmd, (void *)&(((NvmeCmd *)sq->dma_addr_hva)[sq->head]));
+            nvme_copy_cmd(&cmd, (void *)&(((NvmeCmd *)sq->dma_addr_hva)[sq->head]));     
         } else {
             addr = nvme_discontig(sq->prp_list, sq->head, n->page_size,
                                   n->sqe_size);
@@ -63,7 +63,7 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
         QTAILQ_REMOVE(&sq->req_list, req, entry);
         memset(&req->cqe, 0, sizeof(req->cqe));
         /* Coperd: record req->stime at earliest convenience */
-        req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+        req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);    // key code
         req->cqe.cid = cmd.cid;
         req->cmd_opcode = cmd.opcode;
         memcpy(&req->cmd, &cmd, sizeof(NvmeCmd));
@@ -72,11 +72,12 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
             femu_debug("%s,cid:%d\n", __func__, cmd.cid);
         }
 
-        status = nvme_io_cmd(n, &cmd, req);
+        status = nvme_io_cmd(n, &cmd, req);          // key func
         if (1 && status == NVME_SUCCESS) {
             req->status = status;
 
-            int rc = femu_ring_enqueue(n->to_ftl[index_poller], (void *)&req, 1);
+            // 将 req 放入 ftl 队列中，让 ftl 线程处理
+            int rc = femu_ring_enqueue(n->to_ftl[index_poller], (void *)&req, 1);   // key func
             if (rc != 1) {
                 femu_err("enqueue failed, ret=%d\n", rc);
             }
@@ -108,6 +109,8 @@ static void nvme_post_cqe(NvmeCQueue *cq, NvmeRequest *req)
     cqe->status = cpu_to_le16((req->status << 1) | phase);
     cqe->sq_id = cpu_to_le16(sq->sqid);
     cqe->sq_head = cpu_to_le16(sq->head);
+
+    cqe->n.rsvd = req->cmd.res2;          // @wbl   add  back_info
 
     if (cq->phys_contig) {
         addr = cq->dma_addr + cq->tail * n->cqe_size;
@@ -519,7 +522,7 @@ static uint16_t nvme_io_cmd(FemuCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
         return NVME_INVALID_OPCODE | NVME_DNR;
     default:
         if (n->ext_ops.io_cmd) {
-            return n->ext_ops.io_cmd(n, ns, cmd, req);
+            return n->ext_ops.io_cmd(n, ns, cmd, req);        // key func ，指向 nvme_rw()
         }
 
         femu_err("%s, NVME_INVALID_OPCODE\n", __func__);

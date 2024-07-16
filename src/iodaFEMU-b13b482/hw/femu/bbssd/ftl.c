@@ -222,8 +222,8 @@ static void ssd_init_params(struct ssdparams *spp) {
   spp->pgs_per_blk = 256;
   spp->blks_per_pl = 256; /* 16GB */
   spp->pls_per_lun = 1;
-  spp->luns_per_ch = 8;
-  spp->nchs = 8;
+  spp->luns_per_ch = 8;          // used to be 8
+  spp->nchs = 8;                 // used to be 8
 
   spp->pg_rd_lat = NAND_READ_LATENCY;
   spp->pg_wr_lat = NAND_PROG_LATENCY;
@@ -433,7 +433,7 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa,
     nand_stime = (lun->next_lun_avail_time < cmd_stime)
                      ? cmd_stime
                      : lun->next_lun_avail_time;
-    lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
+    lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;     // key code
     lat = lun->next_lun_avail_time - cmd_stime;
 #if 0
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
@@ -815,6 +815,12 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req) {
   return maxlat;
 }
 
+
+#define MAX_QUE_LEN 1024
+
+NvmeRequest* less_priority_que[MAX_QUE_LEN];
+int less_priority_que_tail = 0;
+
 static void *ftl_thread(void *arg) {
   FemuCtrl *n = (FemuCtrl *)arg;
   struct ssd *ssd = n->ssd;
@@ -831,6 +837,8 @@ static void *ftl_thread(void *arg) {
   ssd->to_ftl = n->to_ftl;
   ssd->to_poller = n->to_poller;
 
+  int not_deal_less_prio_round_cnt = 0;
+
   while (1) {
     for (i = 1; i <= n->num_poller; i++) {
       if (!ssd->to_ftl[i] || !femu_ring_count(ssd->to_ftl[i]))
@@ -840,6 +848,17 @@ static void *ftl_thread(void *arg) {
       if (rc != 1) {
         printf("FEMU: FTL to_ftl dequeue failed\n");
       }
+
+      /*
+      if(req->cmd.res2 >= 1 && req->cmd.res2 <= 10 && req->cmd_opcode == NVME_CMD_READ){
+        req->cmd.res2 += 10000;
+      }
+      else{
+        less_priority_que[less_priority_que_tail] = req;
+        less_priority_que_tail ++;
+        continue;
+      }
+      */
 
       ftl_assert(req);
       switch (req->cmd.opcode) {
@@ -869,6 +888,46 @@ static void *ftl_thread(void *arg) {
       if (should_gc(ssd)) {
         do_gc(ssd, false);
       }
+    }
+
+    // not_deal_less_prio_round_cnt ++;
+
+    if(less_priority_que_tail >= 10 || not_deal_less_prio_round_cnt < -1){
+      not_deal_less_prio_round_cnt = 0;
+      for(int i = 0;i < less_priority_que_tail;i ++){
+        req = less_priority_que[i];
+
+        ftl_assert(req);
+        switch (req->cmd.opcode) {
+        case NVME_CMD_WRITE:
+          lat = ssd_write(ssd, req);
+          break;
+        case NVME_CMD_READ:
+          lat = ssd_read(ssd, req);
+          break;
+        case NVME_CMD_DSM:
+          lat = 0;
+          break;
+        default:
+            // ftl_err("FTL received unkown request type, ERROR\n");
+            ;
+        }
+
+        req->reqlat = lat;
+        req->expire_time += lat;
+
+        rc = femu_ring_enqueue(ssd->to_poller[i], (void *)&req, 1);
+        if (rc != 1) {
+          ftl_err("FTL to_poller enqueue failed\n");
+        }
+
+        /* clean one line if needed (in the background) */
+        if (should_gc(ssd)) {
+          do_gc(ssd, false);
+        }
+      }
+
+      less_priority_que_tail = 0;
     }
   }
 

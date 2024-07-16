@@ -1,4 +1,5 @@
 #include "./nvme.h"
+#include <sys/time.h>
 
 static uint16_t nvme_io_cmd(FemuCtrl *n, NvmeCmd *cmd, NvmeRequest *req);
 
@@ -72,6 +73,9 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
             femu_debug("%s,cid:%d\n", __func__, cmd.cid);
         }
 
+        if(req->cmd.res2 >= 1 && req->cmd.res2 <= 10 && req->cmd_opcode == NVME_CMD_READ)    // @wbl
+            req->cmd.res2 += 10000;
+
         status = nvme_io_cmd(n, &cmd, req);          // key func
         if (1 && status == NVME_SUCCESS) {
             req->status = status;
@@ -89,6 +93,148 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
         }
 
         processed++;
+    }
+
+    nvme_update_sq_eventidx(sq);
+    sq->completed += processed;
+}
+
+#define MAX_REQ_NUM 1024
+#define PRI_VAL 50
+
+struct Normal_req
+{
+    NvmeRequest *req;
+    int  pri_val;
+}req_nor_que[MAX_REQ_NUM];
+
+
+static long long current_timestamp_ns() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts); // 获取当前时间
+    return ts.tv_sec * 1000000000LL + ts.tv_nsec; // 转换成纳秒
+}
+
+static void priority_nvme_process_sq_io(void *opaque, int index_poller)
+{
+    NvmeSQueue *sq = opaque;
+    FemuCtrl *n = sq->ctrl;
+
+    uint16_t status;
+    hwaddr addr;
+    NvmeCmd cmd;
+    NvmeRequest *req;
+    int processed = 0;
+    int pri_cnt = 0;
+    int nor_cnt = 0;
+
+    bool pq_flag = false;
+
+    nvme_update_sq_tail(sq);
+    while (!(nvme_sq_empty(sq))) {
+        if (sq->phys_contig) {
+            addr = sq->dma_addr + sq->head * n->sqe_size;
+            nvme_copy_cmd(&cmd, (void *)&(((NvmeCmd *)sq->dma_addr_hva)[sq->head]));     
+        } else {
+            addr = nvme_discontig(sq->prp_list, sq->head, n->page_size,
+                                  n->sqe_size);
+            nvme_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
+        }
+        nvme_inc_sq_head(sq);
+
+        req = QTAILQ_FIRST(&sq->req_list);
+        QTAILQ_REMOVE(&sq->req_list, req, entry);
+        memset(&req->cqe, 0, sizeof(req->cqe));
+        /* Coperd: record req->stime at earliest convenience */
+        req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);    // key code
+        req->cqe.cid = cmd.cid;
+        req->cmd_opcode = cmd.opcode;
+        memcpy(&req->cmd, &cmd, sizeof(NvmeCmd));
+
+        if (n->print_log) {
+            femu_debug("%s,cid:%d\n", __func__, cmd.cid);
+        }
+
+        if(req->cmd.res2 >= 1 && req->cmd.res2 <= 10 && req->cmd_opcode == NVME_CMD_READ){
+            pq_flag = true;
+            req->cmd.res2 += 10000;
+            pri_cnt ++;
+
+            /*
+            if(pq_flag){
+                femu_log("--------- user_data: %d\n",req->cmd.res2);
+            }
+            */
+
+            // req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);    // key code
+
+            status = nvme_io_cmd(n, &cmd, req);          // key func
+            if (1 && status == NVME_SUCCESS) {
+                req->status = status;
+
+                // 将 req 放入 ftl 队列中，让 ftl 线程处理
+                int rc = femu_ring_enqueue(n->to_ftl[index_poller], (void *)&req, 1);   // key func
+                if (rc != 1) {
+                    femu_err("enqueue failed, ret=%d\n", rc);
+                }
+            } else if (status == NVME_SUCCESS) {
+                /* Normal I/Os that don't need delay emulation */
+                req->status = status;
+            } else {
+                femu_err("Error IO processed!\n");
+            }
+        }
+        else{
+            req_nor_que[nor_cnt].req = req;
+            nor_cnt ++;
+        }
+            
+        processed++;
+    }
+
+    /*
+    if(pq_flag)
+        femu_log("--------- processed: %d\n",processed);
+
+    long long start_time = current_timestamp_ns();
+
+    qsort(req_pque,processed,sizeof(struct Req_priority),req_priority_cmpfunc);
+
+    long long end_time = current_timestamp_ns();
+
+    if(pq_flag){
+        long long execution_time = end_time - start_time;
+        femu_log("----------sort time : %lld\n",execution_time);
+    }
+    */
+    
+    for(int i = 0;i < nor_cnt;i ++){
+        req = req_nor_que[i].req;
+        cmd = req->cmd;
+
+        /*
+        if(pq_flag){
+            femu_log("--------- user_data: %d\n",req->cmd.res2);
+        }
+        */
+
+        req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);    // key code
+
+        status = nvme_io_cmd(n, &cmd, req);          // key func
+        if (1 && status == NVME_SUCCESS) {
+            req->status = status;
+
+            // 将 req 放入 ftl 队列中，让 ftl 线程处理
+            int rc = femu_ring_enqueue(n->to_ftl[index_poller], (void *)&req, 1);   // key func
+            if (rc != 1) {
+                femu_err("enqueue failed, ret=%d\n", rc);
+            }
+        } else if (status == NVME_SUCCESS) {
+            /* Normal I/Os that don't need delay emulation */
+            req->status = status;
+        } else {
+            femu_err("Error IO processed!\n");
+        }
     }
 
     nvme_update_sq_eventidx(sq);
@@ -123,6 +269,8 @@ static void nvme_post_cqe(NvmeCQueue *cq, NvmeRequest *req)
     nvme_inc_cq_tail(cq);
 }
 
+long long lag_time = 0;
+
 static void nvme_process_cq_cpl(void *arg, int index_poller)
 {
     FemuCtrl *n = (FemuCtrl *)arg;
@@ -149,10 +297,21 @@ static void nvme_process_cq_cpl(void *arg, int index_poller)
         pqueue_insert(pq, req);
     }
 
+    bool user_data_flag = false;
+
     while ((req = pqueue_peek(pq))) {
         now = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
         if (now < req->expire_time) {
             break;
+        }
+
+        lag_time += now - req->expire_time;
+
+        if(req->cmd.res2 >= 10001 && req->cmd.res2 <= 10010)
+            user_data_flag = true;
+
+        if(user_data_flag){
+            femu_log("---------------- lag_sum_time : %lld\n",lag_time);
         }
 
         cq = n->cq[req->sq->sqid];
@@ -174,6 +333,11 @@ static void nvme_process_cq_cpl(void *arg, int index_poller)
         n->should_isr[req->sq->sqid] = true;
     }
 
+    /*
+    if(user_data_flag)
+        femu_log("---------------cqe processed : %d\n",processed);
+    */
+    
     if (processed == 0)
         return;
 
@@ -209,6 +373,7 @@ static void *nvme_poller(void *arg)
             NvmeCQueue *cq = n->cq[index];
             if (sq && sq->is_active && cq && cq->is_active) {
                 nvme_process_sq_io(sq, index);
+                // priority_nvme_process_sq_io(sq, index);       // @wbl
             }
             nvme_process_cq_cpl(n, index);
         }
@@ -225,6 +390,7 @@ static void *nvme_poller(void *arg)
                 NvmeCQueue *cq = n->cq[i];
                 if (sq && sq->is_active && cq && cq->is_active) {
                     nvme_process_sq_io(sq, index);
+                    // priority_nvme_process_sq_io(sq, index);   // @wbl
                 }
             }
             nvme_process_cq_cpl(n, index);

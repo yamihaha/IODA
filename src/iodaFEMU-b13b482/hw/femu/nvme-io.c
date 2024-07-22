@@ -48,6 +48,8 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
     NvmeRequest *req;
     int processed = 0;
 
+    bool pq_flag = false;
+
     nvme_update_sq_tail(sq);
     while (!(nvme_sq_empty(sq))) {
         if (sq->phys_contig) {
@@ -73,8 +75,15 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
             femu_debug("%s,cid:%d\n", __func__, cmd.cid);
         }
 
+        
         if(req->cmd.res2 >= 1 && req->cmd.res2 <= 10 && req->cmd_opcode == NVME_CMD_READ)    // @wbl
+            req->cmd.res2 += 10000,pq_flag = true;
+        
+
+        /*
+        if(req->cmd.res2 >= 1 && req->cmd.res2 <= 10)    // @wbl
             req->cmd.res2 += 10000;
+        */
 
         status = nvme_io_cmd(n, &cmd, req);          // key func
         if (1 && status == NVME_SUCCESS) {
@@ -97,6 +106,10 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
 
     nvme_update_sq_eventidx(sq);
     sq->completed += processed;
+
+    if(pq_flag){
+        femu_log("-------------------- before processed: %d\n",processed);
+    }
 }
 
 #define MAX_REQ_NUM 1024
@@ -239,6 +252,10 @@ static void priority_nvme_process_sq_io(void *opaque, int index_poller)
 
     nvme_update_sq_eventidx(sq);
     sq->completed += processed;
+
+    if(pq_flag){
+        femu_log("-------------------- after processed: %d\n",processed);
+    }
 }
 
 static void nvme_post_cqe(NvmeCQueue *cq, NvmeRequest *req)
@@ -269,8 +286,6 @@ static void nvme_post_cqe(NvmeCQueue *cq, NvmeRequest *req)
     nvme_inc_cq_tail(cq);
 }
 
-long long lag_time = 0;
-
 static void nvme_process_cq_cpl(void *arg, int index_poller)
 {
     FemuCtrl *n = (FemuCtrl *)arg;
@@ -297,21 +312,10 @@ static void nvme_process_cq_cpl(void *arg, int index_poller)
         pqueue_insert(pq, req);
     }
 
-    bool user_data_flag = false;
-
     while ((req = pqueue_peek(pq))) {
         now = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
         if (now < req->expire_time) {
             break;
-        }
-
-        lag_time += now - req->expire_time;
-
-        if(req->cmd.res2 >= 10001 && req->cmd.res2 <= 10010)
-            user_data_flag = true;
-
-        if(user_data_flag){
-            femu_log("---------------- lag_sum_time : %lld\n",lag_time);
         }
 
         cq = n->cq[req->sq->sqid];

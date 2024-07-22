@@ -21,7 +21,7 @@ sudo ${IODA_FEMU} \
     -boot menu=on \
     -drive file=${IODA_IMGDIR}/ioda.qcow2,if=virtio,cache=none,format=qcow2 \
     -device femu,devsz_mb=12288,femu_mode=1 \
-    -netdev user,id=user0,hostfwd=tcp::10101-:22 \
+    -netdev user,id=user0,hostfwd=tcp::29292-:22 \
     -device virtio-net-pci,netdev=user0 \
     -serial mon:stdio \
     -nographic | tee ./ioda-femu.log 2>&1 \
